@@ -28,3 +28,12 @@ details input, details select { height: 2.7rem; }
 details > h3 { margin: 2rem 0 .45rem; }
 details > summary + h3 { margin-top: 1rem; }
 details > .zone-settings { margin: 0; }
+.app-header { padding-bottom: .65rem; }
+.header-actions { display: flex; align-items: flex-start; gap: .5rem; flex-wrap: wrap; }
+.profile { margin-bottom: 1rem; }
+.profile h2 { margin-bottom: .8rem; }
+.profile-controls { display: flex; align-items: end; gap: .55rem; flex-wrap: wrap; }
+.profile-controls label { display: grid; gap: .12rem; color: #617069; font-size: .78rem; font-weight: 400; }
+.profile-controls label > span:last-child { display: flex; align-items: center; gap: .35rem; color: #17201d; font-size: 1rem; font-weight: 650; }
+.profile-controls input { width: 5.5rem; padding: .38rem .5rem; }
+.profile-controls button { padding: .4rem .6rem; font-size: .82rem; }
