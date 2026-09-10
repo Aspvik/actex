@@ -1,6 +1,21 @@
 import { SCHEMA_VERSION } from "../utils/constants.js";
 
-export const buildExportModel = ({ activity, result, ftp, maxHeartRate, laps }) => ({
+const score = (value) => {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= 10 ? number : null;
+};
+
+const normalizeAthleteNotes = (athleteNotes = {}) => {
+  const normalized = {
+    rpe: score(athleteNotes.rpe),
+    fatigue: score(athleteNotes.fatigue),
+    position: ["seated", "standing", "mixed"].includes(athleteNotes.position) ? athleteNotes.position : null,
+    notes: String(athleteNotes.notes ?? "").trim() || null
+  };
+  return Object.values(normalized).some((value) => value != null) ? normalized : null;
+};
+
+export const buildExportModel = ({ activity, result, ftp, maxHeartRate, intervalSets = [], intervalSessionSummary = null, betweenSetRecoveries = [], athleteNotes, includeIndividualLaps = false, laps = [] }) => ({
   schemaVersion: SCHEMA_VERSION,
   activity: {
     sport: activity.metadata.sport,
@@ -17,12 +32,21 @@ export const buildExportModel = ({ activity, result, ftp, maxHeartRate, laps }) 
   },
   summary: result.summary,
   power: { ftpWatts: ftp ?? null, ...result.power },
-  heartRate: { configuredMaximumBpm: maxHeartRate ?? null, ...result.heartRate },
+  heartRate: {
+    ...result.heartRate,
+    configuredMaximumBpm: maxHeartRate ?? null,
+    threshold90Bpm: maxHeartRate == null ? null : maxHeartRate * .9,
+    threshold95Bpm: maxHeartRate == null ? null : maxHeartRate * .95
+  },
   cadence: result.cadence,
   elevation: result.elevation,
   powerZones: result.zones,
   heartRateZones: result.heartRateZones ?? [],
+  intervalSets,
+  intervalSessionSummary,
+  betweenSetRecoveries,
+  athleteNotes: normalizeAthleteNotes(athleteNotes),
   dataQuality: result.quality,
   warnings: result.warnings,
-  laps
+  ...(includeIndividualLaps ? { laps } : {})
 });

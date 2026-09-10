@@ -4,6 +4,7 @@ import { normalizeFit } from "./fit/normalize-fit.js";
 import { buildTimerSegments } from "./activity/build-timer-state.js";
 import { createSelection, selectionForActivity, selectionForLap, selectionForSession } from "./activity/selection.js";
 import { calculateSelection } from "./metrics/summary.js";
+import { analyzeIntervalSets } from "./analysis/interval-sets.js";
 import { buildExportModel } from "./output/build-export-model.js";
 import { buildMarkdown } from "./output/markdown.js";
 import { buildJson } from "./output/json.js";
@@ -42,7 +43,8 @@ const refresh = () => {
     const ftp = resolvedFtp();
     const maxHeartRate = resolvedMaxHeartRate();
     const result = calculateSelection({ activity: state.activity, selection: state.selection, timerSegments: timerSegments(), ftp: ftp.value, zones: state.settings.zones, heartRateZones: state.settings.heartRateZones, maxHeartRate: maxHeartRate.value, session: selectedSession() });
-    state = { ...state, result, lapsResult: calculateLaps(ftp.value, maxHeartRate.value), ftp: ftp.value, ftpSource: ftp.source, maxHeartRate: maxHeartRate.value, maxHeartRateSource: maxHeartRate.source };
+    const intervalAnalysis = analyzeIntervalSets({ activity: state.activity, timerSegments: timerSegments(), selection: state.selection, maxHeartRate: maxHeartRate.value });
+    state = { ...state, result, lapsResult: calculateLaps(ftp.value, maxHeartRate.value), ...intervalAnalysis, ftp: ftp.value, ftpSource: ftp.source, maxHeartRate: maxHeartRate.value, maxHeartRateSource: maxHeartRate.source };
   } catch (error) {
     state = { status: "empty", error: error.message };
   }
@@ -58,10 +60,21 @@ const selectionFromSeconds = (startSeconds, endSeconds) => {
   state.selection = createSelection({ type: "range", startTimestamp: start, endTimestamp: end > activityEnd ? activityEnd : end });
 };
 
-const exportLaps = () => state.lapsResult;
+const exportLaps = () => state.exportOptions.includeIndividualLaps ? state.lapsResult : [];
 
 const outputText = (format) => {
-  const model = buildExportModel({ activity: state.activity, result: state.result, ftp: state.ftp, maxHeartRate: state.maxHeartRate, laps: exportLaps() });
+  const model = buildExportModel({
+    activity: state.activity,
+    result: state.result,
+    ftp: state.ftp,
+    maxHeartRate: state.maxHeartRate,
+    intervalSets: state.intervalSets,
+    intervalSessionSummary: state.intervalSessionSummary,
+    betweenSetRecoveries: state.betweenSetRecoveries,
+    athleteNotes: state.athleteNotes,
+    includeIndividualLaps: state.exportOptions.includeIndividualLaps,
+    laps: exportLaps()
+  });
   if (format === "json") return buildJson(model);
   return buildMarkdown(model);
 };
@@ -90,7 +103,10 @@ const loadFile = async (file) => {
     if (!String(activity.metadata.sport ?? "cycling").toLowerCase().includes("cycling")) throw new Error("This MVP currently supports cycling FIT activities only.");
     state = {
       status: "parsed", activity, settings: loadSettings(), selection: selectionForActivity(activity), currentFtp: null, currentMaxHeartRate: null,
-      chartOptions: { elevation: true, power: true, cadence: true, heartRate: true }, copyStatus: null, fallbackText: null
+      chartOptions: { elevation: true, power: true, cadence: true, heartRate: true },
+      exportOptions: { includeIndividualLaps: false },
+      athleteNotes: { rpe: null, fatigue: null, position: null, notes: "" },
+      intervalSets: [], intervalSessionSummary: null, betweenSetRecoveries: [], copyStatus: null, fallbackText: null
     };
     refresh();
   } catch (error) {
@@ -109,6 +125,15 @@ const bind = () => {
     if (target.name.startsWith("chart-")) {
       state.chartOptions[target.name.slice(6)] = target.checked;
       refresh();
+      return;
+    }
+    if (target.name === "include-individual-laps") {
+      state.exportOptions.includeIndividualLaps = target.checked;
+      return;
+    }
+    if (target.name === "rpe" || target.name === "fatigue" || target.name === "position" || target.name === "athlete-notes") {
+      const key = target.name === "athlete-notes" ? "notes" : target.name;
+      state.athleteNotes[key] = target.value;
       return;
     }
     if (target.name === "rangeStart" || target.name === "rangeEnd") return;

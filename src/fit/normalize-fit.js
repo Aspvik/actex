@@ -69,11 +69,21 @@ const normalizeLap = (message, index, sessions) => {
     normalizedPowerWatts: nullableNumber(message.normalizedPower),
     averageHeartRateBpm: nullableNumber(message.avgHeartRate),
     averageCadenceRpm: nullableNumber(message.avgCadence),
-    averageSpeedMps: nullableNumber(message.avgSpeed)
+    averageSpeedMps: nullableNumber(message.avgSpeed),
+    lapTrigger: message.lapTrigger ?? null,
+    // The FIT SDK exposes the standard FIT Workout Step Index field as
+    // `wktStepIndex`. Keep the application model readable and stable.
+    workoutStepIndex: nullableNumber(message.workoutStepIndex ?? message.wktStepIndex)
   };
 };
 
 const normalizeTimerEvent = (message) => ({ timestamp: asDate(message.timestamp), event: message.event, eventType: message.eventType, timerState: message.eventType });
+const normalizeWorkoutStep = (message, index) => ({
+  index: nullableNumber(message.messageIndex) ?? index,
+  name: message.wktStepName ?? null,
+  durationSeconds: nullableNumber(message.durationTime),
+  intensity: message.intensity ?? null
+});
 
 export const normalizeFit = ({ messages, errors = [], integrityWarning = false }) => {
   const sessions = (messages.sessionMesgs ?? []).map(normalizeSession).filter((session) => session.startTime && session.endTime);
@@ -102,6 +112,7 @@ export const normalizeFit = ({ messages, errors = [], integrityWarning = false }
     },
     sessions,
     laps,
+    workoutSteps: (messages.workoutStepMesgs ?? []).map(normalizeWorkoutStep),
     records,
     timerEvents: (messages.eventMesgs ?? []).filter((message) => String(message.event).toLowerCase() === "timer").map(normalizeTimerEvent).filter((event) => event.timestamp),
     devices: (messages.deviceInfoMesgs ?? []).map((message) => ({ manufacturer: message.manufacturer ?? null, productName: message.productName ?? message.garminProduct ?? message.product ?? null })),

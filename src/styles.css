@@ -37,3 +37,11 @@ details > .zone-settings { margin: 0; }
 .profile-controls label > span:last-child { display: flex; align-items: center; gap: .35rem; color: #17201d; font-size: 1rem; font-weight: 650; }
 .profile-controls input { width: 5.5rem; padding: .38rem .5rem; }
 .profile-controls button { padding: .4rem .6rem; font-size: .82rem; }
+.athlete-context-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin-bottom: .85rem; }
+.athlete-context-controls label, .athlete-notes { display: grid; gap: .2rem; color: #617069; font-size: .78rem; font-weight: 400; }
+.athlete-context-controls input { width: 5.5rem; }
+.athlete-context-controls select { min-width: 8rem; }
+.athlete-notes { max-width: 560px; }
+.athlete-notes textarea { min-height: 4.5rem; }
+.export-laps { display: flex; align-items: center; gap: .5rem; margin-top: .85rem; font-size: .88rem; font-weight: 600; }
+.export-laps input { min-width: auto; }

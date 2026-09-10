@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 export const NORMAL_SAMPLE_GAP_SECONDS = 5;
 export const HARD_GAP_LIMIT_SECONDS = 30;
