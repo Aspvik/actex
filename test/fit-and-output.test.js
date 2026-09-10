@@ -91,6 +91,29 @@ describe("versioned exports", () => {
     expect(markdown).toContain("Protocol: 2 x 23/27");
   });
 
+  it("groups visually identical protocols despite small measured-duration differences", () => {
+    const markdown = buildMarkdown({
+      ...model,
+      intervalSessionSummary: {
+        setCount: 3,
+        partial: false,
+        protocols: [
+          { repetitions: 13, workDurationSeconds: 29, recoveryDurationSeconds: 14 },
+          { repetitions: 13, workDurationSeconds: 30, recoveryDurationSeconds: 15 },
+          { repetitions: 13, workDurationSeconds: 29.5, recoveryDurationSeconds: 14.5 }
+        ],
+        totalSetDurationSeconds: 1755,
+        totalHardWorkDurationSeconds: 1170,
+        averageWorkPowerWatts: 504,
+        timeAtOrAbove90Seconds: 995,
+        timeAtOrAbove95Seconds: 0,
+        maximumHeartRateBpm: 178
+      }
+    });
+    expect(markdown).toContain("Protocol: 3 x [13 x 30/15]");
+    expect(markdown).toContain("Total Interval Set Duration: 0:29:15");
+  });
+
   it("exports heart-rate zones as a table with BPM boundaries", () => {
     const markdown = buildMarkdown({
       ...model,

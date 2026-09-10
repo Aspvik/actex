@@ -224,10 +224,7 @@ const totalWhenAvailable = (sets, value) => {
 
 const summarizeIntervalSession = (intervalSets) => {
   if (!intervalSets.length) return null;
-  const protocols = [...new Map(intervalSets.map((set) => {
-    const protocol = { repetitions: set.repetitions, ...set.pattern };
-    return [`${protocol.repetitions}:${protocol.workDurationSeconds}:${protocol.recoveryDurationSeconds}`, protocol];
-  })).values()];
+  const protocols = intervalSets.map((set) => ({ repetitions: set.repetitions, ...set.pattern }));
   const workPowerDurationSeconds = intervalSets.reduce((total, set) => total + set.power.workPowerDurationSeconds, 0);
   const maximumHeartRates = intervalSets.map((set) => set.heartRate.maximumBpm).filter((value) => value != null);
   return {

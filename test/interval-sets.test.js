@@ -96,6 +96,7 @@ describe("interval set analysis", () => {
     expect(markdown).toContain("## Interval Session Summary");
     expect(markdown).toContain("Sets: 2");
     expect(markdown).toContain("Protocol: 3 x 30/15 + 2 x 40/20");
+    expect(markdown).toContain("Total Interval Set Duration: 0:04:13");
     expect(markdown).toContain("Total Hard Work: 0:02:49");
     expect(markdown).toContain("### Set 1 - 3 x 30/15");
     expect(markdown).toMatch(/### Set 1[\s\S]*Recovery Average: 103 rpm\n\n### Set 2/);

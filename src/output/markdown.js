@@ -15,18 +15,27 @@ const normalizedIntervalDuration = (seconds) => {
 };
 const intervalDuration = (seconds) => {
   const normalized = normalizedIntervalDuration(seconds);
-  if (normalized != null) return normalized % 60 === 0 ? `${normalized / 60}min` : String(normalized);
+  if (normalized != null) return normalized >= 60 ? formatDuration(normalized).replace(/^0:/, "") : String(normalized);
   const roundedMeasuredSeconds = Math.round(seconds);
   return roundedMeasuredSeconds >= 60 ? formatDuration(roundedMeasuredSeconds).replace(/^0:/, "") : String(roundedMeasuredSeconds);
 };
 const metricLine = (label, value, unit, decimals = 0) => value == null ? null : line(label, formatMetric(value, unit, decimals));
 const percentLine = (label, value) => value == null ? null : line(label, formatPercent(value));
 const intervalProtocol = (protocol) => `${protocol.repetitions} x ${intervalDuration(protocol.workDurationSeconds)}/${intervalDuration(protocol.recoveryDurationSeconds)}`;
+const groupedIntervalProtocols = (protocols) => [...protocols.reduce((groups, protocol) => {
+  const label = intervalProtocol(protocol);
+  const group = groups.get(label) ?? { label, count: 0 };
+  group.count += 1;
+  groups.set(label, group);
+  return groups;
+}, new Map()).values()]
+  .map((group) => group.count > 1 ? `${group.count} x [${group.label}]` : group.label)
+  .join(" + ");
 
 const intervalSessionSummary = (summary) => !summary ? null : section("Interval Session Summary", [
   line("Sets", `${summary.setCount}${summary.partial ? " (partial selection)" : ""}`),
-  line("Protocol", summary.protocols.map(intervalProtocol).join(" + ")),
-  line("Total Set Duration", formatDuration(summary.totalSetDurationSeconds)),
+  line("Protocol", groupedIntervalProtocols(summary.protocols)),
+  line("Total Interval Set Duration", formatDuration(summary.totalSetDurationSeconds)),
   line("Total Hard Work", formatDuration(summary.totalHardWorkDurationSeconds)),
   metricLine("Average Work Power", summary.averageWorkPowerWatts, "W"),
   line("Time >= 90% HRmax", formatDuration(summary.timeAtOrAbove90Seconds)),
