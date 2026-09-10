@@ -2,11 +2,10 @@ import "./styles.css";
 import { decodeFitFile } from "./fit/decode-fit.js";
 import { normalizeFit } from "./fit/normalize-fit.js";
 import { buildTimerSegments } from "./activity/build-timer-state.js";
-import { createSelection, selectionForActivity, selectionForLap, selectionForSession, selectionsOverlap } from "./activity/selection.js";
+import { createSelection, selectionForActivity, selectionForLap, selectionForSession } from "./activity/selection.js";
 import { calculateSelection } from "./metrics/summary.js";
 import { buildExportModel } from "./output/build-export-model.js";
 import { buildMarkdown } from "./output/markdown.js";
-import { buildCompactText } from "./output/compact-text.js";
 import { buildJson } from "./output/json.js";
 import { loadSettings, resetSettings, saveSettings } from "./storage/settings.js";
 import { formatRelativeTime } from "./utils/time.js";
@@ -59,16 +58,12 @@ const selectionFromSeconds = (startSeconds, endSeconds) => {
   state.selection = createSelection({ type: "range", startTimestamp: start, endTimestamp: end > activityEnd ? activityEnd : end });
 };
 
-const exportLaps = () => {
-  if (!state.exportOptions.includeLaps) return [];
-  if (state.selection.type !== "range") return state.lapsResult;
-  return state.exportOptions.includeOverlappingLaps ? state.lapsResult.filter((lap) => selectionsOverlap(lap.selection, state.selection)) : [];
-};
+const exportLaps = () => state.lapsResult;
 
 const outputText = (format) => {
-  const model = buildExportModel({ activity: state.activity, result: state.result, ftp: state.ftp, maxHeartRate: state.maxHeartRate, includeLaps: state.exportOptions.includeLaps, laps: exportLaps() });
+  const model = buildExportModel({ activity: state.activity, result: state.result, ftp: state.ftp, maxHeartRate: state.maxHeartRate, laps: exportLaps() });
   if (format === "json") return buildJson(model);
-  return state.exportOptions.compact ? buildCompactText(model) : buildMarkdown(model);
+  return buildMarkdown(model);
 };
 
 const copy = async (format) => {
@@ -95,7 +90,7 @@ const loadFile = async (file) => {
     if (!String(activity.metadata.sport ?? "cycling").toLowerCase().includes("cycling")) throw new Error("This MVP currently supports cycling FIT activities only.");
     state = {
       status: "parsed", activity, settings: loadSettings(), selection: selectionForActivity(activity), currentFtp: null, currentMaxHeartRate: null,
-      exportOptions: { compact: false, includeLaps: false, includeOverlappingLaps: false }, chartOptions: { elevation: true, power: true, cadence: true, heartRate: true }, copyStatus: null, fallbackText: null
+      chartOptions: { elevation: true, power: true, cadence: true, heartRate: true }, copyStatus: null, fallbackText: null
     };
     refresh();
   } catch (error) {
@@ -243,7 +238,6 @@ const bind = () => {
     }
     if (action === "reset-settings") { state.settings = resetSettings(); state.currentFtp = null; state.currentMaxHeartRate = null; return refresh(); }
   }));
-  app.querySelectorAll('[name="compact"], [name="includeLaps"], [name="includeOverlappingLaps"]').forEach((input) => input.addEventListener("change", (event) => { state.exportOptions[event.target.name] = event.target.checked; }));
 };
 
 refresh();
