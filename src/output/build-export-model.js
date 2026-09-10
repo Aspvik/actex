@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION } from "../utils/constants.js";
 
-export const buildExportModel = ({ activity, result, ftp, includeLaps, laps }) => ({
+export const buildExportModel = ({ activity, result, ftp, maxHeartRate, includeLaps, laps }) => ({
   schemaVersion: SCHEMA_VERSION,
   activity: {
     sport: activity.metadata.sport,
@@ -16,10 +16,11 @@ export const buildExportModel = ({ activity, result, ftp, includeLaps, laps }) =
   },
   summary: result.summary,
   power: { ftpWatts: ftp ?? null, ...result.power },
-  heartRate: result.heartRate,
+  heartRate: { configuredMaximumBpm: maxHeartRate ?? null, ...result.heartRate },
   cadence: result.cadence,
   elevation: result.elevation,
   powerZones: result.zones,
+  heartRateZones: result.heartRateZones ?? [],
   dataQuality: result.quality,
   warnings: result.warnings,
   laps: includeLaps ? laps : []

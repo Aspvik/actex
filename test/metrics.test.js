@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildTimerSegments, activeTimerSeconds } from "../src/activity/build-timer-state.js";
 import { createSelection } from "../src/activity/selection.js";
 import { calculateSelection } from "../src/metrics/summary.js";
-import { DEFAULT_ZONE_BOUNDARIES } from "../src/utils/constants.js";
+import { DEFAULT_HEART_RATE_ZONE_BOUNDARIES, DEFAULT_ZONE_BOUNDARIES } from "../src/utils/constants.js";
 
 const at = (seconds) => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds));
 const records = (duration, values = {}) => Array.from({ length: duration + 1 }, (_, index) => ({ timestamp: at(index), powerWatts: values.power ? values.power(index) : 300, heartRateBpm: values.hr ? values.hr(index) : 150, cadenceRpm: values.cadence ? values.cadence(index) : 90, speedMps: 10, distanceMeters: index * 10, altitudeMeters: 100 + index }));
 const activity = (dataRecords = records(600), events = []) => ({ metadata: { startTime: at(0), endTime: at(600), sport: "cycling" }, records: dataRecords, timerEvents: events, diagnostics: { decodeWarnings: [] } });
 const selection = (end = 600) => createSelection({ type: "activity", startTimestamp: at(0), endTimestamp: at(end) });
-const result = ({ dataRecords, events = [], end = 600, ftp = 300 } = {}) => {
+const result = ({ dataRecords, events = [], end = 600, ftp = 300, maxHeartRate = null } = {}) => {
   const item = activity(dataRecords, events);
-  return calculateSelection({ activity: item, selection: selection(end), timerSegments: buildTimerSegments({ startTime: at(0), endTime: at(600), timerEvents: events }), ftp, zones: structuredClone(DEFAULT_ZONE_BOUNDARIES), session: {} });
+  return calculateSelection({ activity: item, selection: selection(end), timerSegments: buildTimerSegments({ startTime: at(0), endTime: at(600), timerEvents: events }), ftp, zones: structuredClone(DEFAULT_ZONE_BOUNDARIES), heartRateZones: structuredClone(DEFAULT_HEART_RATE_ZONE_BOUNDARIES), maxHeartRate, session: {} });
 };
 
 describe("timer and sample policies", () => {
@@ -53,6 +53,18 @@ describe("cycling calculations", () => {
     const dataRecords = records(8, { power: (index) => [0, 164.999, 165, 228, 264, 285, 318, 363, 400][index] });
     const calculated = result({ dataRecords, end: 8 });
     expect(calculated.zones.map((zone) => zone.durationSeconds)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+  });
+
+  it("classifies percentage-of-max-heart-rate boundaries without overlap", () => {
+    const dataRecords = records(5, { hr: (index) => [110, 144, 164, 174, 184, 200][index] });
+    const calculated = result({ dataRecords, end: 5, maxHeartRate: 200 });
+    expect(calculated.heartRateZones.map((zone) => zone.durationSeconds)).toEqual([1, 1, 1, 1, 1]);
+  });
+
+  it("does not include heart rates above the configured maximum", () => {
+    const dataRecords = records(2, { hr: (index) => [191, 191, 191][index] });
+    const calculated = result({ dataRecords, end: 2, maxHeartRate: 190 });
+    expect(calculated.heartRateZones.reduce((total, zone) => total + zone.durationSeconds, 0)).toBe(0);
   });
 
   it("warns when Normalized Power is requested for a short range", () => {

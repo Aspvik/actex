@@ -22,11 +22,17 @@ const resolvedFtp = () => {
   if (selectedSession()?.fileFtpWatts) return { value: selectedSession().fileFtpWatts, source: "FIT metadata" };
   return { value: null, source: "unavailable" };
 };
+const resolvedMaxHeartRate = () => {
+  if (state.currentMaxHeartRate) return { value: state.currentMaxHeartRate, source: "current activity" };
+  if (state.settings.defaultMaxHeartRate) return { value: state.settings.defaultMaxHeartRate, source: "saved default" };
+  if (state.activity.metadata.maxHeartRateBpm) return { value: state.activity.metadata.maxHeartRateBpm, source: "FIT metadata" };
+  return { value: null, source: "unavailable" };
+};
 const timerSegments = () => buildTimerSegments({ startTime: state.activity.metadata.startTime, endTime: state.activity.metadata.endTime, timerEvents: state.activity.timerEvents });
 
-const calculateLaps = (ftp) => state.activity.laps.flatMap((lap) => {
+const calculateLaps = (ftp, maxHeartRate) => state.activity.laps.flatMap((lap) => {
   try {
-    const result = calculateSelection({ activity: state.activity, selection: selectionForLap(lap), timerSegments: timerSegments(), ftp, zones: state.settings.zones, session: state.activity.sessions.find((session) => session.index === lap.sessionIndex) });
+    const result = calculateSelection({ activity: state.activity, selection: selectionForLap(lap), timerSegments: timerSegments(), ftp, zones: state.settings.zones, heartRateZones: state.settings.heartRateZones, maxHeartRate, session: state.activity.sessions.find((session) => session.index === lap.sessionIndex) });
     return [{ ...result, index: lap.index, title: lap.title }];
   } catch { return []; }
 });
@@ -35,8 +41,9 @@ const refresh = () => {
   if (state.status !== "parsed") { app.innerHTML = renderApp(state); bind(); return; }
   try {
     const ftp = resolvedFtp();
-    const result = calculateSelection({ activity: state.activity, selection: state.selection, timerSegments: timerSegments(), ftp: ftp.value, zones: state.settings.zones, session: selectedSession() });
-    state = { ...state, result, lapsResult: calculateLaps(ftp.value), ftp: ftp.value, ftpSource: ftp.source };
+    const maxHeartRate = resolvedMaxHeartRate();
+    const result = calculateSelection({ activity: state.activity, selection: state.selection, timerSegments: timerSegments(), ftp: ftp.value, zones: state.settings.zones, heartRateZones: state.settings.heartRateZones, maxHeartRate: maxHeartRate.value, session: selectedSession() });
+    state = { ...state, result, lapsResult: calculateLaps(ftp.value, maxHeartRate.value), ftp: ftp.value, ftpSource: ftp.source, maxHeartRate: maxHeartRate.value, maxHeartRateSource: maxHeartRate.source };
   } catch (error) {
     state = { status: "empty", error: error.message };
   }
@@ -59,9 +66,9 @@ const exportLaps = () => {
 };
 
 const outputText = (format) => {
-  const model = buildExportModel({ activity: state.activity, result: state.result, ftp: state.ftp, includeLaps: state.exportOptions.includeLaps, laps: exportLaps() });
+  const model = buildExportModel({ activity: state.activity, result: state.result, ftp: state.ftp, maxHeartRate: state.maxHeartRate, includeLaps: state.exportOptions.includeLaps, laps: exportLaps() });
   if (format === "json") return buildJson(model);
-  return state.exportOptions.compact ? buildCompactText(model, state.settings.units) : buildMarkdown(model, state.settings.units);
+  return state.exportOptions.compact ? buildCompactText(model) : buildMarkdown(model);
 };
 
 const copy = async (format) => {
@@ -87,7 +94,7 @@ const loadFile = async (file) => {
     const activity = normalizeFit(await decodeFitFile(file));
     if (!String(activity.metadata.sport ?? "cycling").toLowerCase().includes("cycling")) throw new Error("This MVP currently supports cycling FIT activities only.");
     state = {
-      status: "parsed", activity, settings: loadSettings(), selection: selectionForActivity(activity), currentFtp: null,
+      status: "parsed", activity, settings: loadSettings(), selection: selectionForActivity(activity), currentFtp: null, currentMaxHeartRate: null,
       exportOptions: { compact: false, includeLaps: false, includeOverlappingLaps: false }, chartOptions: { elevation: true, power: true, cadence: true, heartRate: true }, copyStatus: null, fallbackText: null
     };
     refresh();
@@ -208,20 +215,33 @@ const bind = () => {
       return refresh();
     }
     if (action === "select-range") { state.selection = createSelection({ ...state.selection, type: "range" }); return refresh(); }
-    if (action === "set-ftp" || action === "save-ftp") {
+    if (action === "apply-fitness-inputs" || action === "save-fitness-inputs") {
       const ftp = Number(app.querySelector('[name="ftp"]').value);
+      const maxHeartRateInput = app.querySelector('[name="max-heart-rate"]').value;
       state.currentFtp = Number.isFinite(ftp) && ftp > 0 ? ftp : null;
-      if (action === "save-ftp" && state.currentFtp) { state.settings.defaultFtp = state.currentFtp; saveSettings(state.settings); }
+      const maxHeartRate = Number(maxHeartRateInput);
+      const hasMaxHeartRateInput = maxHeartRateInput;
+      if (hasMaxHeartRateInput && (!Number.isFinite(maxHeartRate) || maxHeartRate <= 0)) return alert("Max HR must be a positive number.");
+      state.currentMaxHeartRate = hasMaxHeartRateInput ? maxHeartRate : null;
+      if (action === "save-fitness-inputs") {
+        if (state.currentFtp) state.settings.defaultFtp = state.currentFtp;
+        if (hasMaxHeartRateInput) {
+          state.settings.defaultMaxHeartRate = maxHeartRate;
+        }
+        saveSettings(state.settings);
+      }
       return refresh();
     }
     if (action === "save-settings") {
-      state.settings.units = app.querySelector('[name="units"]').value;
       const editable = state.settings.zones.filter((zone) => zone.id !== "coasting").map((zone) => ({ ...zone, minimum: Number(app.querySelector(`[name="zone-${zone.id}"]`).value) / 100 }));
       if (editable.some((zone, index) => !Number.isFinite(zone.minimum) || zone.minimum < 0 || (index && zone.minimum <= editable[index - 1].minimum))) return alert("Zone starts must be increasing non-negative percentages.");
+      const editableHeartRateZones = state.settings.heartRateZones.map((zone) => ({ ...zone, minimum: Number(app.querySelector(`[name="heart-rate-zone-${zone.id}"]`).value) / 100 }));
+      if (editableHeartRateZones.some((zone, index) => !Number.isFinite(zone.minimum) || zone.minimum < 0 || zone.minimum > 1 || (index && zone.minimum <= editableHeartRateZones[index - 1].minimum))) return alert("Heart-rate zone starts must be increasing percentages from 0 to 100.");
       state.settings.zones = [{ ...state.settings.zones[0] }, ...editable.map((zone, index) => ({ ...zone, maximum: editable[index + 1]?.minimum ?? null }))];
+      state.settings.heartRateZones = editableHeartRateZones.map((zone, index) => ({ ...zone, maximum: editableHeartRateZones[index + 1]?.minimum ?? 1 }));
       saveSettings(state.settings); return refresh();
     }
-    if (action === "reset-settings") { state.settings = resetSettings(); state.currentFtp = null; return refresh(); }
+    if (action === "reset-settings") { state.settings = resetSettings(); state.currentFtp = null; state.currentMaxHeartRate = null; return refresh(); }
   }));
   app.querySelectorAll('[name="compact"], [name="includeLaps"], [name="includeOverlappingLaps"]').forEach((input) => input.addEventListener("change", (event) => { state.exportOptions[event.target.name] = event.target.checked; }));
 };

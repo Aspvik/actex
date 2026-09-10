@@ -83,6 +83,9 @@ export const normalizeFit = ({ messages, errors = [], integrityWarning = false }
   if (records.some((record, index) => index && record.timestamp < records[index - 1].timestamp)) throw new Error("The activity has impossible timestamp ordering.");
   const laps = (messages.lapMesgs ?? []).map((message, index) => normalizeLap(message, index, sessions)).filter((lap) => lap.startTime && lap.endTime);
   const fileId = first(messages, "fileIdMesgs");
+  const userProfile = first(messages, "userProfileMesgs");
+  const zoneTargets = first(messages, "zonesTargetMesgs");
+  const timeInZone = first(messages, "timeInZoneMesgs");
   const startTime = sessions[0].startTime;
   const endTime = sessions.at(-1).endTime;
   return {
@@ -94,7 +97,8 @@ export const normalizeFit = ({ messages, errors = [], integrityWarning = false }
       endTime,
       fileCreationTime: asDate(fileId.timeCreated),
       manufacturer: fileId.manufacturer ?? null,
-      productName: fileId.productName ?? (fileId.garminProduct ?? fileId.product ?? null)
+      productName: fileId.productName ?? (fileId.garminProduct ?? fileId.product ?? null),
+      maxHeartRateBpm: nullableNumber(timeInZone.maxHeartRate ?? zoneTargets.maxHeartRate ?? userProfile.defaultMaxBikingHeartRate ?? userProfile.defaultMaxHeartRate)
     },
     sessions,
     laps,

@@ -3,13 +3,14 @@ import { buildSampleIntervals } from "../activity/sample-durations.js";
 import { secondsBetween } from "../utils/time.js";
 import { dataQuality } from "./coverage.js";
 import { calculateHeartRate } from "./heart-rate.js";
+import { calculateHeartRateZones } from "./heart-rate-zones.js";
 import { calculateCadence } from "./cadence.js";
 import { calculatePower, detectPowerOutliers } from "./power.js";
 import { calculatePowerZones } from "./power-zones.js";
 import { calculateSpeedDistance } from "./speed-distance.js";
 import { calculateElevation } from "./elevation.js";
 
-export const calculateSelection = ({ activity, selection, timerSegments, ftp = null, zones, session = null }) => {
+export const calculateSelection = ({ activity, selection, timerSegments, ftp = null, zones, heartRateZones = [], maxHeartRate = null, session = null }) => {
   const activeDurationSeconds = activeTimerSeconds(timerSegments, selection);
   if (!activeDurationSeconds) throw new Error("The selected range contains no active timer time.");
   const intervals = buildSampleIntervals(activity.records, selection, timerSegments);
@@ -33,6 +34,7 @@ export const calculateSelection = ({ activity, selection, timerSegments, ftp = n
     cadence,
     elevation,
     zones: calculatePowerZones(intervals, ftp, zones),
+    heartRateZones: calculateHeartRateZones(intervals, maxHeartRate, heartRateZones),
     quality,
     warnings: [...new Set(warnings)]
   };

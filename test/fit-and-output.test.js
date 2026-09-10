@@ -17,12 +17,15 @@ describe("FIT normalization", () => {
       fileIdMesgs: [{ timeCreated: time(0), serialNumber: 123, productName: "Edge" }],
       sessionMesgs: [{ startTime: time(0), timestamp: time(20), sport: "cycling", totalTimerTime: 20, totalDistance: 100 }],
       recordMesgs: [{ timestamp: time(0), power: 0, positionLat: 123 }, { timestamp: time(20), power: 300, positionLong: 123 }],
-      eventMesgs: [{ timestamp: time(5), event: "timer", eventType: "stop" }]
+      eventMesgs: [{ timestamp: time(5), event: "timer", eventType: "stop" }],
+      timeInZoneMesgs: [{ maxHeartRate: 185, restingHeartRate: 39 }]
     } });
     expect(activity.records[0].powerWatts).toBe(0);
     expect(activity.records[0]).not.toHaveProperty("positionLat");
     expect(activity.metadata).not.toHaveProperty("serialNumber");
     expect(activity.timerEvents).toHaveLength(1);
+    expect(activity.metadata.maxHeartRateBpm).toBe(185);
+    expect(activity.metadata).not.toHaveProperty("restingHeartRateBpm");
   });
 
   it("uses elapsed time when test.fit has a start-equivalent session timestamp", async () => {
@@ -46,5 +49,23 @@ describe("versioned exports", () => {
     const json = buildJson(model);
     expect(JSON.parse(json).schemaVersion).toBe(1);
     expect(json).not.toMatch(/serial|position/i);
+  });
+
+  it("formats power-zone boundaries without floating-point decimals", () => {
+    const markdown = buildMarkdown({
+      ...model,
+      powerZones: [{ id: "recovery", label: "Active Recovery", minimum: 0, maximum: 0.55, durationSeconds: 10, percentage: 0.1 }]
+    });
+    expect(markdown).toContain("| Active Recovery | 0:00:10 | 10.0% | 0 W | 165 W |");
+    expect(markdown).not.toContain("55.00000000000001");
+  });
+
+  it("exports heart-rate zones as a table with BPM boundaries", () => {
+    const markdown = buildMarkdown({
+      ...model,
+      heartRate: { ...model.heartRate, configuredMaximumBpm: 190 },
+      heartRateZones: [{ id: "zone1", label: "Warm Up", minimum: 0.55, maximum: 0.72, durationSeconds: 10, percentage: 0.1 }]
+    });
+    expect(markdown).toContain("| Warm Up | 0:00:10 | 10.0% | 105 bpm | 137 bpm |");
   });
 });
