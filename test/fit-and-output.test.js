@@ -91,6 +91,26 @@ describe("versioned exports", () => {
     expect(markdown).toContain("Protocol: 2 x 23/27");
   });
 
+  it("normalizes a measured five-minute protocol consistently with the UI", () => {
+    const markdown = buildMarkdown({
+      ...model,
+      intervalSessionSummary: {
+        setCount: 1,
+        partial: false,
+        protocols: [{ repetitions: 4, workDurationSeconds: 301, recoveryDurationSeconds: 240, recoveryDurationConsistent: false }],
+        totalSetDurationSeconds: 1204,
+        totalHardWorkDurationSeconds: 1204,
+        averageWorkPowerWatts: 480,
+        timeAtOrAbove90Seconds: 1000,
+        timeAtOrAbove95Seconds: 300,
+        maximumHeartRateBpm: 186
+      }
+    });
+
+    expect(markdown).toContain("Protocol: 4 x 05:00");
+    expect(markdown).not.toContain("Protocol: 4 x 05:01");
+  });
+
   it("groups visually identical protocols despite small measured-duration differences", () => {
     const markdown = buildMarkdown({
       ...model,

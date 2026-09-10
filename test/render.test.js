@@ -45,3 +45,56 @@ describe("lap presentation", () => {
     expect(markup).not.toContain('<div class="laps">');
   });
 });
+
+describe("interval analysis presentation", () => {
+  it("renders interval summary, exposure, compact sets, recoveries, and details before zones", () => {
+    const markup = renderApp({
+      ...state,
+      result: { ...state.result, zones: [{ id: "z1", label: "Z1", minimum: 0, maximum: .5, durationSeconds: 60, percentage: .5 }] },
+      intervalSessionSummary: {
+        setCount: 2,
+        protocols: [
+          { repetitions: 4, workDurationSeconds: 301, recoveryDurationSeconds: 240, recoveryDurationConsistent: false },
+          { repetitions: 9, workDurationSeconds: 30, recoveryDurationSeconds: 15, recoveryDurationConsistent: true }
+        ],
+        totalSetDurationSeconds: 2446,
+        totalHardWorkDurationSeconds: 1476,
+        averageWorkPowerWatts: 487,
+        timeAtOrAbove90Seconds: 1367,
+        timeAtOrAbove95Seconds: 577,
+        maximumHeartRateBpm: 186
+      },
+      intervalSets: [
+        {
+          number: 1, partial: false, repetitions: 4, includedRepetitions: 4,
+          pattern: { workDurationSeconds: 301, recoveryDurationSeconds: 240, recoveryDurationConsistent: false },
+          durationSeconds: 1400, hardWorkDurationSeconds: 1200,
+          power: { workAverageWatts: 480, recoveryAverageWatts: 73, fadePercent: .005, minimumRepAverageWatts: 470, maximumRepAverageWatts: 490, firstHalfAverageWatts: 482, secondHalfAverageWatts: 480, wholeSetAverageWatts: 390 },
+          heartRate: { averageBpm: 155, maximumBpm: 186, startBpm: 130, endBpm: 180, timeAtOrAbove90Seconds: 1031, timeAtOrAbove95Seconds: 426, timeToFirst90Seconds: 85 },
+          cadence: { workAverageRpm: 102, recoveryAverageRpm: 41 }
+        },
+        {
+          number: 2, partial: false, repetitions: 9, includedRepetitions: 9,
+          pattern: { workDurationSeconds: 30, recoveryDurationSeconds: 15, recoveryDurationConsistent: true },
+          durationSeconds: 1046, hardWorkDurationSeconds: 276,
+          power: { workAverageWatts: 518, recoveryAverageWatts: 220, fadePercent: -.004, minimumRepAverageWatts: 500, maximumRepAverageWatts: 530, firstHalfAverageWatts: 516, secondHalfAverageWatts: 518, wholeSetAverageWatts: 410 },
+          heartRate: { averageBpm: 176, maximumBpm: 184, startBpm: 165, endBpm: 183, timeAtOrAbove90Seconds: 336, timeAtOrAbove95Seconds: 151, timeToFirst90Seconds: 30 },
+          cadence: { workAverageRpm: 104, recoveryAverageRpm: 87 }
+        }
+      ],
+      betweenSetRecoveries: [{ beforeSetNumber: 2, partial: false, elapsedDurationSeconds: 203, averageActivePowerWatts: 35, lowestHeartRateBpm: 98, heartRateAtNextSetStartBpm: 125 }]
+    });
+
+    expect(markup).toContain("Interval analysis");
+    expect(markup).toContain("4 x 05:00 + 9 x 30/15");
+    expect(markup).toContain("Time >=90% HRmax");
+    expect(markup).toContain("Time >=95% HRmax");
+    expect(markup).toContain("HR exposure within interval sets");
+    expect(markup).toContain('aria-valuetext="55.9%"');
+    expect(markup).toContain("Set 1 · 4 x 05:00");
+    expect(markup).toContain("Set 2 · 9 x 30/15");
+    expect(markup).toContain("Recovery 0:03:23");
+    expect(markup).toContain("Time to 90% HRmax");
+    expect(markup.indexOf("Interval analysis")).toBeLessThan(markup.indexOf("Power zones"));
+  });
+});

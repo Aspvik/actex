@@ -1,4 +1,5 @@
 import { formatDateTime, formatDuration, formatMetric, formatMetricDistance, formatPercent, formatSpeed } from "../utils/format.js";
+import { formatIntervalProtocol } from "../utils/interval-protocol.js";
 import { formatRelativeTime } from "../utils/time.js";
 
 const line = (label, value) => value == null ? null : `${label}: ${value}`;
@@ -7,23 +8,10 @@ const table = (headers, rows) => [`| ${headers.join(" | ")} |`, `| ${headers.map
 const powerZoneBoundary = (ratio, ftp) => ratio == null ? "No limit" : formatMetric(ratio * ftp, "W");
 const heartRateZoneBoundary = (ratio, maxHeartRate) => ratio == null ? "No limit" : formatMetric(maxHeartRate * ratio, "bpm");
 const formatThreshold = (value) => value == null ? null : formatMetric(value, "bpm", Number.isInteger(value) ? 0 : 1);
-const COMMON_INTERVAL_DURATIONS_SECONDS = [5, 10, 15, 20, 30, 40, 45, 60, 75, 90, 120, 150, 180, 240, 300, 360, 480, 600, 720, 900, 1200];
-const DISPLAY_INTERVAL_DURATION_TOLERANCE_SECONDS = 2;
-const normalizedIntervalDuration = (seconds) => {
-  const nearest = COMMON_INTERVAL_DURATIONS_SECONDS.reduce((closest, candidate) => Math.abs(candidate - seconds) < Math.abs(closest - seconds) ? candidate : closest, COMMON_INTERVAL_DURATIONS_SECONDS[0]);
-  return Math.abs(nearest - seconds) <= DISPLAY_INTERVAL_DURATION_TOLERANCE_SECONDS ? nearest : null;
-};
-const intervalDuration = (seconds) => {
-  const normalized = normalizedIntervalDuration(seconds);
-  if (normalized != null) return normalized >= 60 ? formatDuration(normalized).replace(/^0:/, "") : String(normalized);
-  const roundedMeasuredSeconds = Math.round(seconds);
-  return roundedMeasuredSeconds >= 60 ? formatDuration(roundedMeasuredSeconds).replace(/^0:/, "") : String(roundedMeasuredSeconds);
-};
 const metricLine = (label, value, unit, decimals = 0) => value == null ? null : line(label, formatMetric(value, unit, decimals));
 const percentLine = (label, value) => value == null ? null : line(label, formatPercent(value));
-const intervalProtocol = (protocol) => `${protocol.repetitions} x ${intervalDuration(protocol.workDurationSeconds)}${protocol.recoveryDurationConsistent === false ? "" : `/${intervalDuration(protocol.recoveryDurationSeconds)}`}`;
 const groupedIntervalProtocols = (protocols) => [...protocols.reduce((groups, protocol) => {
-  const label = intervalProtocol(protocol);
+  const label = formatIntervalProtocol(protocol);
   const group = groups.get(label) ?? { label, count: 0 };
   group.count += 1;
   groups.set(label, group);
@@ -44,7 +32,7 @@ const intervalSessionSummary = (summary) => !summary ? null : section("Interval 
 ]);
 
 const intervalSet = (set) => {
-  const title = `${set.partial ? "Partial Set" : "Set"} ${set.number} - ${intervalProtocol({ repetitions: set.repetitions, ...set.pattern })}`;
+  const title = `${set.partial ? "Partial Set" : "Set"} ${set.number} - ${formatIntervalProtocol({ repetitions: set.repetitions, ...set.pattern })}`;
   const repetitions = set.partial ? `${set.includedRepetitions} of ${set.repetitions}` : String(set.repetitions);
   return [`### ${title}`,
     line("Repetitions", repetitions),
