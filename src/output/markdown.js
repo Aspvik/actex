@@ -1,4 +1,4 @@
-import { formatDate, formatDuration, formatMetric, formatMetricDistance, formatPercent, formatSpeed } from "../utils/format.js";
+import { formatDateTime, formatDuration, formatMetric, formatMetricDistance, formatPercent, formatSpeed } from "../utils/format.js";
 import { formatRelativeTime } from "../utils/time.js";
 
 const line = (label, value) => value == null ? null : `${label}: ${value}`;
@@ -15,7 +15,7 @@ export const buildMarkdown = (model) => {
   const sections = [
     "# Activity Data\n\nactex schema: 1",
     section("Activity", [
-      line("Sport", model.activity.sport), line("Date", formatDate(activityStart)), line("Selection", model.activity.selectionType),
+      line("Sport", model.activity.sport), line("Date", formatDateTime(activityStart)), line("Device", model.activity.device), line("Selection", model.activity.selectionType),
       line("Start", formatRelativeTime(activityStart, new Date(model.selection.startTimestamp))), line("End", formatRelativeTime(activityStart, new Date(model.selection.endTimestamp)))
     ]),
     section("Summary", [line("Active Duration", formatDuration(summary.activeDurationSeconds)), line("Elapsed Duration", formatDuration(summary.elapsedDurationSeconds)), summary.distanceMeters == null ? null : line("Distance", formatMetricDistance(summary.distanceMeters)), summary.averageSpeedMps == null ? null : line("Average Speed", formatSpeed(summary.averageSpeedMps)), summary.maximumSpeedMps == null ? null : line("Maximum Speed", formatSpeed(summary.maximumSpeedMps)), model.elevation.gainMeters == null ? null : line("Elevation Gain", formatMetric(model.elevation.gainMeters, "m"))]),

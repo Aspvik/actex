@@ -199,6 +199,7 @@ const bind = () => {
   }
   app.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", async () => {
     const action = button.dataset.action;
+    if (action === "new-file") return app.querySelector("#fit-file")?.click();
     if (action === "copy-markdown") return copy("markdown");
     if (action === "copy-json") return copy("json");
     if (action === "select-activity") { state.selection = selectionForActivity(state.activity); return refresh(); }

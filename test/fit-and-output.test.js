@@ -44,9 +44,15 @@ describe("versioned exports", () => {
   });
   it("has schema identifiers and no private device details", () => {
     expect(buildMarkdown(model)).toContain("actex schema: 1");
+    expect(buildMarkdown(model)).toMatch(/Date: .*\d{1,2}:\d{2}/);
     const json = buildJson(model);
     expect(JSON.parse(json).schemaVersion).toBe(1);
     expect(json).not.toMatch(/serial|position/i);
+  });
+
+  it("includes the activity device in Markdown when available", () => {
+    const markdown = buildMarkdown({ ...model, activity: { ...model.activity, device: "edge1040" } });
+    expect(markdown).toContain("Device: edge1040");
   });
 
   it("formats power-zone boundaries without floating-point decimals", () => {

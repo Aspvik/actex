@@ -5,6 +5,7 @@ export const buildExportModel = ({ activity, result, ftp, maxHeartRate, laps }) 
   activity: {
     sport: activity.metadata.sport,
     date: activity.metadata.startTime?.toISOString().slice(0, 10) ?? null,
+    device: activity.metadata.productName ?? null,
     selectionType: result.selection.type,
     startTimestamp: result.selection.startTimestamp.toISOString(),
     endTimestamp: result.selection.endTimestamp.toISOString()
