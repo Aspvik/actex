@@ -124,31 +124,41 @@ describe("versioned exports", () => {
   });
 
   it("includes exact heart-rate thresholds, athlete notes, and optional raw laps", () => {
+    const result = {
+      selection: { ...model.selection, startTimestamp: time(0), endTimestamp: time(60) },
+      summary: model.summary,
+      power: model.power,
+      heartRate: model.heartRate,
+      cadence: model.cadence,
+      elevation: model.elevation,
+      zones: model.powerZones,
+      heartRateZones: model.heartRateZones,
+      quality: model.dataQuality,
+      warnings: model.warnings
+    };
     const exportModel = buildExportModel({
       activity: { metadata: { sport: "cycling", startTime: time(0) } },
-      result: {
-        selection: { ...model.selection, startTimestamp: time(0), endTimestamp: time(60) },
-        summary: model.summary,
-        power: model.power,
-        heartRate: model.heartRate,
-        cadence: model.cadence,
-        elevation: model.elevation,
-        zones: model.powerZones,
-        heartRateZones: model.heartRateZones,
-        quality: model.dataQuality,
-        warnings: model.warnings
-      },
+      result,
       ftp: 300,
       maxHeartRate: 187,
-      athleteNotes: { rpe: "0", fatigue: "7", position: "mixed", notes: "Hard but controlled." },
+      athleteNotes: { rpe: "1", fatigue: "7", position: "mixed", notes: "Hard but controlled." },
       includeIndividualLaps: true,
       laps: [{ title: "Lap 1", summary: { activeDurationSeconds: 60, distanceMeters: 1000 }, power: {}, heartRate: {}, cadence: {} }]
     });
     const markdown = buildMarkdown(exportModel);
     expect(markdown).toContain("90% HRmax: 168.3 bpm");
-    expect(markdown).toContain("RPE: 0/10");
+    expect(markdown).toContain("RPE: 1/10");
     expect(markdown).toContain("Fatigue: 7/10 (10 = extremely fatigued)");
     expect(markdown).toContain("## Laps");
     expect(buildJson(exportModel)).toContain('"schemaVersion": 2');
+
+    const noNotesModel = buildExportModel({
+      activity: { metadata: { sport: "cycling", startTime: time(0), productName: 0 } },
+      result,
+      athleteNotes: { rpe: "", fatigue: "", position: "", notes: "" }
+    });
+    expect(noNotesModel.activity.device).toBeNull();
+    expect(noNotesModel.athleteNotes).toBeNull();
+    expect(buildMarkdown(noNotesModel)).not.toContain("## Athlete Notes");
   });
 });

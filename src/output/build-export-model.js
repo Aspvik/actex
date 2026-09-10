@@ -1,8 +1,14 @@
 import { SCHEMA_VERSION } from "../utils/constants.js";
 
 const score = (value) => {
+  if (value == null || value === "") return null;
   const number = Number(value);
-  return Number.isInteger(number) && number >= 0 && number <= 10 ? number : null;
+  return Number.isInteger(number) && number >= 1 && number <= 10 ? number : null;
+};
+
+const deviceName = (value) => {
+  const name = String(value ?? "").trim();
+  return name && name !== "0" ? name : null;
 };
 
 const normalizeAthleteNotes = (athleteNotes = {}) => {
@@ -20,7 +26,7 @@ export const buildExportModel = ({ activity, result, ftp, maxHeartRate, interval
   activity: {
     sport: activity.metadata.sport,
     date: activity.metadata.startTime?.toISOString().slice(0, 10) ?? null,
-    device: activity.metadata.productName ?? null,
+    device: deviceName(activity.metadata.productName),
     selectionType: result.selection.type,
     startTimestamp: result.selection.startTimestamp.toISOString(),
     endTimestamp: result.selection.endTimestamp.toISOString()
