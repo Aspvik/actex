@@ -1,0 +1,19 @@
+{
+  "name": "actex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@garmin/fitsdk": "21.212.0"
+  },
+  "devDependencies": {
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  }
+}
