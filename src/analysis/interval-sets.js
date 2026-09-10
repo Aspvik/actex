@@ -8,6 +8,7 @@ const LONG_DURATION_TOLERANCE_RATIO = .05;
 const MINIMUM_POWER_DIFFERENCE_WATTS = 25;
 const MINIMUM_POWER_DIFFERENCE_RATIO = .15;
 const MINIMUM_BETWEEN_SET_RECOVERY_SECONDS = 60;
+const LONG_WORK_INTERVAL_SECONDS = 120;
 
 const selectionFor = (startTimestamp, endTimestamp) => ({ type: "range", startTimestamp, endTimestamp });
 const durationTolerance = (seconds) => seconds <= 60 ? SHORT_DURATION_TOLERANCE_SECONDS : seconds * LONG_DURATION_TOLERANCE_RATIO;
@@ -21,6 +22,18 @@ const clip = (window, selection) => {
 const average = (values) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : null;
 const first = (values) => values.length ? values[0] : null;
 const last = (values) => values.length ? values.at(-1) : null;
+const uniqueWindows = (windows) => windows
+  .toSorted((left, right) => left.startTimestamp - right.startTimestamp)
+  .reduce((merged, window) => {
+    const previous = merged.at(-1);
+    if (previous && window.startTimestamp <= previous.endTimestamp) {
+      previous.endTimestamp = new Date(Math.max(previous.endTimestamp, window.endTimestamp));
+    } else {
+      merged.push({ ...window });
+    }
+    return merged;
+  }, []);
+const durationOf = (windows) => windows.reduce((total, window) => total + secondsBetween(window.startTimestamp, window.endTimestamp), 0);
 
 const activeIntervalsFor = (activity, timerSegments, window) => buildSampleIntervals(activity.records, selectionFor(window.startTimestamp, window.endTimestamp), timerSegments);
 const activeDurationFor = (timerSegments, window) => activeTimerSeconds(timerSegments, selectionFor(window.startTimestamp, window.endTimestamp));
@@ -80,8 +93,24 @@ const buildLapUnits = ({ activity, timerSegments }) => {
   .filter((lap) => lap.durationSeconds > 0);
 };
 
-const detectSetAt = (units, startIndex) => {
-  const firstWork = units[startIndex];
+// A work repetition can be recognised from either adjacent recovery. Keeping
+// this as a separate pass prevents a final work lap from being lost merely
+// because it has no trailing recovery lap.
+const buildWorkRepetitions = (units) => units.flatMap((work, unitIndex) => {
+  const previousRecovery = units[unitIndex - 1];
+  const followingRecovery = units[unitIndex + 1];
+  const hasPreviousRecovery = previousRecovery && isWorkRecoveryPair(work, previousRecovery);
+  const hasFollowingRecovery = followingRecovery && isWorkRecoveryPair(work, followingRecovery);
+  return hasPreviousRecovery || hasFollowingRecovery ? [{ work, unitIndex }] : [];
+});
+
+const recoveryTimingMustMatch = (work) => work.patternDurationSeconds < LONG_WORK_INTERVAL_SECONDS;
+const isExplicitRepeatedRecoveryStep = (trailingRecovery, recoveries) => trailingRecovery.workoutStepIndex != null
+  && recoveries.some((recovery) => recovery.workoutStepIndex === trailingRecovery.workoutStepIndex);
+
+const detectSetAt = (units, workRepetitions, startIndex) => {
+  const firstRepetition = workRepetitions.find((repetition) => repetition.unitIndex === startIndex);
+  const firstWork = firstRepetition?.work;
   const firstRecovery = units[startIndex + 1];
   if (!firstWork || !firstRecovery || !isWorkRecoveryPair(firstWork, firstRecovery)) return null;
 
@@ -91,10 +120,13 @@ const detectSetAt = (units, startIndex) => {
   while (cursor + 2 < units.length) {
     const work = units[cursor];
     const recovery = units[cursor + 1];
-    const nextWork = units[cursor + 2];
+    const nextRepetition = workRepetitions.find((repetition) => repetition.unitIndex === cursor + 2);
+    const nextWork = nextRepetition?.work;
     if (!isWorkRecoveryPair(work, recovery)
-      || !durationMatches(firstRecovery.patternDurationSeconds, recovery.patternDurationSeconds)
-      || !durationMatches(firstWork.patternDurationSeconds, nextWork.patternDurationSeconds)) break;
+      || !nextWork
+      || !isWorkRecoveryPair(nextWork, recovery)
+      || !durationMatches(firstWork.patternDurationSeconds, nextWork.patternDurationSeconds)
+      || (recoveryTimingMustMatch(firstWork) && !durationMatches(firstRecovery.patternDurationSeconds, recovery.patternDurationSeconds))) break;
     recoveries.push(recovery);
     works.push(nextWork);
     cursor += 2;
@@ -102,11 +134,18 @@ const detectSetAt = (units, startIndex) => {
 
   if (works.length < 2) return null;
   const trailingRecovery = units[cursor + 1];
+  let includedTrailingRecovery = null;
   if (trailingRecovery
     && isWorkRecoveryPair(works.at(-1), trailingRecovery)
-    && durationMatches(firstRecovery.patternDurationSeconds, trailingRecovery.patternDurationSeconds)) recoveries.push(trailingRecovery);
+    && (recoveryTimingMustMatch(firstWork)
+      ? durationMatches(firstRecovery.patternDurationSeconds, trailingRecovery.patternDurationSeconds)
+      : isExplicitRepeatedRecoveryStep(trailingRecovery, recoveries))) {
+    recoveries.push(trailingRecovery);
+    includedTrailingRecovery = trailingRecovery;
+  }
 
-  const endUnit = recoveries.at(-1) ?? works.at(-1);
+  const endUnit = includedTrailingRecovery ?? works.at(-1);
+  const recoveryDurationConsistent = recoveries.every((recovery) => durationMatches(firstRecovery.patternDurationSeconds, recovery.patternDurationSeconds));
   return {
     startIndex,
     endIndex: units.indexOf(endUnit),
@@ -116,6 +155,7 @@ const detectSetAt = (units, startIndex) => {
     // used only to recognize a pattern, never to replace measured timing.
     workDurationSeconds: average(works.map((work) => work.durationSeconds)),
     recoveryDurationSeconds: average(recoveries.map((recovery) => recovery.durationSeconds)),
+    recoveryDurationConsistent,
     workUnits: works,
     recoveryUnits: recoveries,
     workoutStepIndexes: works.concat(recoveries)
@@ -125,15 +165,32 @@ const detectSetAt = (units, startIndex) => {
 };
 
 const detectSets = (units) => {
-  const sets = [];
-  let index = 0;
-  while (index < units.length) {
-    const set = detectSetAt(units, index);
-    if (!set) { index += 1; continue; }
-    sets.push(set);
-    index = Math.max(index + 1, set.endIndex + 1);
+  const workRepetitions = buildWorkRepetitions(units);
+  const candidates = workRepetitions
+    .map(({ unitIndex }) => detectSetAt(units, workRepetitions, unitIndex))
+    .filter(Boolean)
+    // Claim the largest runs first, so a 4 x 5:00 candidate wins over its
+    // overlapping 2 x and 3 x subsets.
+    .toSorted((left, right) => right.workUnits.length - left.workUnits.length || left.startIndex - right.startIndex);
+  const selected = [];
+  for (const candidate of candidates) {
+    if (selected.some((set) => overlaps(candidate, set))) continue;
+    selected.push(candidate);
   }
-  return sets;
+  return selected.toSorted((left, right) => left.startTimestamp - right.startTimestamp);
+};
+
+const assertDetectedSetInvariants = (sets) => {
+  const workIntervals = [];
+  for (const set of sets) {
+    const setWindow = { startTimestamp: set.startTimestamp, endTimestamp: set.endTimestamp };
+    if (sets.some((otherSet) => otherSet !== set && overlaps(setWindow, otherSet))) throw new Error("Detected interval sets must not overlap.");
+    for (const work of set.workUnits) {
+      const workWindow = { startTimestamp: work.startTimestamp, endTimestamp: work.endTimestamp };
+      if (workIntervals.some((otherWork) => overlaps(workWindow, otherWork))) throw new Error("A work interval cannot belong to more than one detected set.");
+      workIntervals.push(workWindow);
+    }
+  }
 };
 
 const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxHeartRate }) => {
@@ -142,10 +199,11 @@ const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxH
   const clippedSet = clip(setWindow, selection);
   const workWindows = set.workUnits.map((unit) => clip(unit, selection)).filter(Boolean);
   if (!workWindows.length) return null;
-  const recoveryWindows = set.recoveryUnits.map((unit) => clip(unit, selection)).filter(Boolean);
+  const uniqueWorkWindows = uniqueWindows(workWindows);
+  const recoveryWindows = uniqueWindows(set.recoveryUnits.map((unit) => clip(unit, selection)).filter(Boolean));
   const workIntervalsByRep = workWindows.map((window) => activeIntervalsFor(activity, timerSegments, window));
   const recoveryIntervals = recoveryWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
-  const workIntervals = workIntervalsByRep.flat();
+  const workIntervals = uniqueWorkWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
   const setIntervals = activeIntervalsFor(activity, timerSegments, clippedSet);
   const repPowers = workIntervalsByRep.map((intervals) => weightedField(intervals, "powerWatts")).filter((value) => value != null);
   const splitAt = Math.max(1, Math.floor(workIntervalsByRep.length / 2));
@@ -154,6 +212,9 @@ const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxH
   const firstHalfAverageWatts = weightedField(firstHalfIntervals, "powerWatts");
   const secondHalfAverageWatts = weightedField(secondHalfIntervals, "powerWatts");
   const partial = clippedSet.startTimestamp > set.startTimestamp || clippedSet.endTimestamp < set.endTimestamp;
+  const hardWorkDurationSeconds = uniqueWorkWindows.reduce((total, window) => total + activeDurationFor(timerSegments, window), 0);
+  const durationSeconds = secondsBetween(clippedSet.startTimestamp, clippedSet.endTimestamp);
+  if (hardWorkDurationSeconds > durationSeconds) throw new Error("Hard work duration cannot exceed set duration.");
   return {
     number: setNumber,
     partial,
@@ -161,9 +222,13 @@ const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxH
     includedRepetitions: workWindows.length,
     workoutStepIndexes: set.workoutStepIndexes,
     executionMetadataSource: set.workoutStepIndexes.length ? "workoutStepIndex" : set.workUnits[0].executionMetadataSource,
-    pattern: { workDurationSeconds: set.workDurationSeconds, recoveryDurationSeconds: set.recoveryDurationSeconds },
-    durationSeconds: secondsBetween(clippedSet.startTimestamp, clippedSet.endTimestamp),
-    hardWorkDurationSeconds: workWindows.reduce((total, window) => total + activeDurationFor(timerSegments, window), 0),
+    pattern: {
+      workDurationSeconds: set.workDurationSeconds,
+      recoveryDurationSeconds: set.recoveryDurationSeconds,
+      recoveryDurationConsistent: set.recoveryDurationConsistent
+    },
+    durationSeconds,
+    hardWorkDurationSeconds,
     power: {
       workAverageWatts: weightedField(workIntervals, "powerWatts"),
       minimumRepAverageWatts: repPowers.length ? Math.min(...repPowers) : null,
@@ -217,39 +282,41 @@ const summarizeRecoveries = ({ detectedSets, exportedSets, activity, timerSegmen
   });
 };
 
-const totalWhenAvailable = (sets, value) => {
-  const values = sets.map(value);
-  return values.length && values.every((item) => item != null) ? values.reduce((total, item) => total + item, 0) : null;
-};
-
-const summarizeIntervalSession = (intervalSets) => {
-  if (!intervalSets.length) return null;
+const summarizeIntervalSession = ({ includedSets, activity, timerSegments, selection, maxHeartRate }) => {
+  if (!includedSets.length) return null;
+  const intervalSets = includedSets.map(({ intervalSet }) => intervalSet);
+  const setWindows = uniqueWindows(includedSets.map(({ detectedSet }) => clip(detectedSet, selection)).filter(Boolean));
+  const workWindows = uniqueWindows(includedSets.flatMap(({ detectedSet }) => detectedSet.workUnits.map((work) => clip(work, selection)).filter(Boolean)));
+  const workIntervals = workWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
+  const setIntervals = setWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
+  const heartRate = heartRateSummary(setIntervals, setWindows[0].startTimestamp, maxHeartRate);
   const protocols = intervalSets.map((set) => ({ repetitions: set.repetitions, ...set.pattern }));
-  const workPowerDurationSeconds = intervalSets.reduce((total, set) => total + set.power.workPowerDurationSeconds, 0);
-  const maximumHeartRates = intervalSets.map((set) => set.heartRate.maximumBpm).filter((value) => value != null);
+  const workPowerDurationSeconds = intervalsForField(workIntervals, "powerWatts").reduce((total, interval) => total + interval.validSeconds, 0);
   return {
     setCount: intervalSets.length,
     partial: intervalSets.some((set) => set.partial),
     protocols,
-    totalSetDurationSeconds: intervalSets.reduce((total, set) => total + set.durationSeconds, 0),
-    totalHardWorkDurationSeconds: intervalSets.reduce((total, set) => total + set.hardWorkDurationSeconds, 0),
+    totalSetDurationSeconds: durationOf(setWindows),
+    totalHardWorkDurationSeconds: workWindows.reduce((total, window) => total + activeDurationFor(timerSegments, window), 0),
     averageWorkPowerWatts: workPowerDurationSeconds
-      ? intervalSets.reduce((total, set) => total + set.power.workAverageWatts * set.power.workPowerDurationSeconds, 0) / workPowerDurationSeconds
+      ? weightedField(workIntervals, "powerWatts")
       : null,
-    timeAtOrAbove90Seconds: totalWhenAvailable(intervalSets, (set) => set.heartRate.timeAtOrAbove90Seconds),
-    timeAtOrAbove95Seconds: totalWhenAvailable(intervalSets, (set) => set.heartRate.timeAtOrAbove95Seconds),
-    maximumHeartRateBpm: maximumHeartRates.length ? Math.max(...maximumHeartRates) : null
+    timeAtOrAbove90Seconds: heartRate.timeAtOrAbove90Seconds,
+    timeAtOrAbove95Seconds: heartRate.timeAtOrAbove95Seconds,
+    maximumHeartRateBpm: heartRate.maximumBpm
   };
 };
 
 export const analyzeIntervalSets = ({ activity, timerSegments, selection, maxHeartRate = null }) => {
   const detectedSets = detectSets(buildLapUnits({ activity, timerSegments }));
-  const intervalSets = detectedSets
-    .map((set, index) => summarizeSet({ set, setNumber: index + 1, activity, timerSegments, selection, maxHeartRate }))
-    .filter(Boolean);
+  assertDetectedSetInvariants(detectedSets);
+  const includedSets = detectedSets
+    .map((detectedSet, index) => ({ detectedSet, intervalSet: summarizeSet({ set: detectedSet, setNumber: index + 1, activity, timerSegments, selection, maxHeartRate }) }))
+    .filter(({ intervalSet }) => intervalSet);
+  const intervalSets = includedSets.map(({ intervalSet }) => intervalSet);
   return {
     intervalSets,
-    intervalSessionSummary: summarizeIntervalSession(intervalSets),
+    intervalSessionSummary: summarizeIntervalSession({ includedSets, activity, timerSegments, selection, maxHeartRate }),
     betweenSetRecoveries: summarizeRecoveries({ detectedSets, exportedSets: intervalSets, activity, timerSegments, selection })
   };
 };

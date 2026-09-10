@@ -21,7 +21,7 @@ const intervalDuration = (seconds) => {
 };
 const metricLine = (label, value, unit, decimals = 0) => value == null ? null : line(label, formatMetric(value, unit, decimals));
 const percentLine = (label, value) => value == null ? null : line(label, formatPercent(value));
-const intervalProtocol = (protocol) => `${protocol.repetitions} x ${intervalDuration(protocol.workDurationSeconds)}/${intervalDuration(protocol.recoveryDurationSeconds)}`;
+const intervalProtocol = (protocol) => `${protocol.repetitions} x ${intervalDuration(protocol.workDurationSeconds)}${protocol.recoveryDurationConsistent === false ? "" : `/${intervalDuration(protocol.recoveryDurationSeconds)}`}`;
 const groupedIntervalProtocols = (protocols) => [...protocols.reduce((groups, protocol) => {
   const label = intervalProtocol(protocol);
   const group = groups.get(label) ?? { label, count: 0 };
@@ -44,7 +44,7 @@ const intervalSessionSummary = (summary) => !summary ? null : section("Interval 
 ]);
 
 const intervalSet = (set) => {
-  const title = `${set.partial ? "Partial Set" : "Set"} ${set.number} - ${set.repetitions} x ${intervalDuration(set.pattern.workDurationSeconds)}/${intervalDuration(set.pattern.recoveryDurationSeconds)}`;
+  const title = `${set.partial ? "Partial Set" : "Set"} ${set.number} - ${intervalProtocol({ repetitions: set.repetitions, ...set.pattern })}`;
   const repetitions = set.partial ? `${set.includedRepetitions} of ${set.repetitions}` : String(set.repetitions);
   return [`### ${title}`,
     line("Repetitions", repetitions),
