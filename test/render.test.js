@@ -35,14 +35,39 @@ describe("lap presentation", () => {
     const markup = renderApp(state);
 
     expect(markup).toContain('<table class="lap-table">');
-    expect(markup).toContain('<th scope="col">Duration</th>');
-    expect(markup).toContain('<th scope="col">Distance</th>');
-    expect(markup).toContain('<th scope="col">NP</th>');
-    expect(markup).toContain('<th scope="col">Power</th>');
-    expect(markup).toContain('<th scope="col">HR</th>');
-    expect(markup).toContain('<th scope="row">Lap 1</th>');
+    expect(markup).toContain('<th scope="col" title="Active duration of the lap.">Duration</th>');
+    expect(markup).toContain('<th scope="col" title="Distance recorded during the lap.">Distance</th>');
+    expect(markup).toContain('<th scope="col" title="Normalized Power for the lap.">NP</th>');
+    expect(markup).toContain('<th scope="col" title="Average cycling power for the lap.">Power</th>');
+    expect(markup).toContain('<th scope="col" title="Average heart rate for the lap.">HR</th>');
+    expect(markup).toContain('<th scope="row" title="Recorded activity lap: Lap 1.">Lap 1</th>');
     expect(markup).toContain('data-action="select-lap" data-index="1"');
     expect(markup).not.toContain('<div class="laps">');
+  });
+
+  it("adds explanatory titles from profile metrics through zone settings", () => {
+    const markup = renderApp({
+      ...state,
+      ftp: 300,
+      maxHeartRate: 190,
+      result: {
+        ...state.result,
+        power: { normalizedPowerWatts: 300 },
+        zones: [{ id: "z5", label: "Z5 - Maximum", minimum: 1.05, maximum: null, durationSeconds: 60, percentage: .5 }],
+        heartRateZones: [{ id: "z5", label: "Z5", minimum: .9, maximum: null, durationSeconds: 60, percentage: .5 }]
+      },
+      settings: {
+        zones: [{ id: "z5", label: "Z5 - Maximum", minimum: 1.05 }],
+        heartRateZones: [{ id: "z5", label: "Z5", minimum: .9 }]
+      }
+    });
+
+    expect(markup).toContain('name="ftp" type="number" min="1" inputmode="numeric" value="300" aria-label="FTP in watts" title="Functional Threshold Power.');
+    expect(markup).toContain('name="max-heart-rate" type="number" min="1" inputmode="numeric" value="190" aria-label="Maximum heart rate" title="Maximum heart rate used for heart-rate zones and HRmax thresholds."');
+    expect(markup).toContain('<dt title="Estimated physiological cost of variable power, calculated from rolling 30-second power values.">Normalized Power</dt>');
+    expect(markup).toContain('title="Power zone Z5 - Maximum. 315 W+ · 105% FTP+."');
+    expect(markup).toContain('title="Lower bound for Z5 - Maximum, as a percentage of FTP."><span title="Power zone Z5 - Maximum.">Z5 - Maximum</span>');
+    expect(markup).toContain('title="Lower bound for Z5, as a percentage of maximum heart rate."><span title="Heart-rate zone Z5.">Z5</span>');
   });
 });
 
