@@ -24,20 +24,20 @@ const metricDescriptions = {
   "Variability Index": "Normalized Power divided by average power. Higher values indicate more variable pacing.",
   "Average HR": "Average recorded heart rate during the selected activity range.",
   "Maximum HR": "Highest recorded heart rate during the selected activity range.",
+  "Time >=90% HRmax": "Total valid recorded heart-rate time during the selected active range at or above 90 percent of configured Max HR. Unavailable until Max HR is set.",
+  "Time >=95% HRmax": "Total valid recorded heart-rate time during the selected active range at or above 95 percent of configured Max HR. Unavailable until Max HR is set.",
   "Average cadence": "Average pedalling cadence during the selected activity range.",
   "Maximum cadence": "Highest recorded pedalling cadence during the selected activity range.",
   "Elevation gain": "Total accumulated climbing during the selected activity range.",
   "Total interval-set time": "Combined elapsed duration of all detected interval sets in the selection.",
   "Hard work": "Combined duration of the work portions of detected interval sets.",
   "Avg work power": "Average power across the work portions of all detected interval sets.",
-  "Time >=90% HRmax": "Time at or above 90 percent of your configured maximum heart rate.",
-  "Time >=95% HRmax": "Time at or above 95 percent of your configured maximum heart rate.",
   "Max HR": "Highest recorded heart rate within the detected interval sets.",
   "Work power": "Average power during the work portions of this interval set.",
   "Recovery power": "Average power during the recovery portions of this interval set.",
   "Power fade": "Percentage change in average work power from the first half to the second half of this interval set.",
   "Avg / max HR": "Average and highest recorded heart rate within this interval set.",
-  ">=90% HRmax": "Time at or above 90 percent of your configured maximum heart rate.",
+  ">=90% HRmax": "Valid recorded heart-rate time within this interval set at or above 90 percent of configured Max HR.",
   "Work / recovery cadence": "Average pedalling cadence during work portions, followed by recovery portions.",
   "Set duration": "Elapsed duration of this interval set, including its work and included recovery portions.",
   "Minimum rep power": "Lowest average power among the work repetitions in this interval set.",
@@ -46,7 +46,7 @@ const metricDescriptions = {
   "Second-half power": "Average work power in the second half of this interval set.",
   "Whole-set power": "Average power across the entire interval set, including work and recovery portions.",
   "Start / end HR": "Heart rate at the start and end of this interval set.",
-  ">=95% HRmax": "Time at or above 95 percent of your configured maximum heart rate.",
+  ">=95% HRmax": "Valid recorded heart-rate time within this interval set at or above 95 percent of configured Max HR.",
   "Time to 90% HRmax": "Time from the start of this interval set until heart rate first reaches 90 percent of your configured maximum heart rate.",
   "Records": "Number of activity records included in the selected range.",
   "Power coverage": "Share of records in the selected range that contain a power value.",
@@ -110,23 +110,25 @@ const summary = (result, ftp) => `<section class="panel"${titleAttribute("Summar
   ${metric("Variability Index", result.power.variabilityIndex == null ? null : result.power.variabilityIndex.toFixed(2))}
   ${metric("Average HR", result.heartRate.averageBpm == null ? null : formatMetric(result.heartRate.averageBpm, "bpm"))}
   ${metric("Maximum HR", result.heartRate.maximumBpm == null ? null : formatMetric(result.heartRate.maximumBpm, "bpm"))}
+  ${metric("Time >=90% HRmax", formatDuration(result.heartRate.timeAtOrAbove90Seconds) ?? "Unavailable")}
+  ${metric("Time >=95% HRmax", formatDuration(result.heartRate.timeAtOrAbove95Seconds) ?? "Unavailable")}
   ${metric("Average cadence", result.cadence.averageRpm == null ? null : formatMetric(result.cadence.averageRpm, "rpm"))}
   ${metric("Maximum cadence", result.cadence.maximumRpm == null ? null : formatMetric(result.cadence.maximumRpm, "rpm"))}
   ${metric("Elevation gain", result.elevation.gainMeters == null ? null : formatMetric(result.elevation.gainMeters, "m"), result.elevation.source ?? "Calculated")}
 </dl></section>`;
 
-const intervalMetric = (label, value) => {
-  const description = metricDescription(label);
+const intervalMetric = (label, value, description = metricDescription(label)) => {
   return `<div${titleAttribute(description)}><dt${titleAttribute(description)}>${label}</dt><dd${titleAttribute(description)}>${value}</dd></div>`;
 };
 const pairedMetric = (firstValue, secondValue, unit) => firstValue == null && secondValue == null
   ? "Unavailable"
   : `${firstValue == null ? "Unavailable" : formatNumber(firstValue)} / ${secondValue == null ? "Unavailable" : formatNumber(secondValue)} ${unit}`;
-const exposureBar = (label, seconds, totalSeconds, className) => {
+const exposureBar = (thresholdPercent, seconds, totalSeconds, className) => {
   if (seconds == null) return "";
+  const label = `>=${thresholdPercent}% HRmax`;
   const percentage = totalSeconds > 0 ? Math.min(100, Math.max(0, seconds / totalSeconds * 100)) : 0;
   const percentageLabel = formatPercent(percentage / 100);
-  const description = `${metricDescription(label)} This is ${percentageLabel} of the combined interval-set time.`;
+  const description = `Valid recorded heart-rate time within detected interval sets at or above ${thresholdPercent} percent of configured Max HR. This is ${percentageLabel} of the combined interval-set time.`;
   return `<div class="interval-exposure__row"${titleAttribute(description)}><div><span${titleAttribute(description)}>${label}</span><strong${titleAttribute(description)}>${percentageLabel}</strong></div><div class="interval-exposure__track" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percentage}" aria-valuetext="${percentageLabel}"${titleAttribute(description)}><span class="interval-exposure__fill ${className}" style="width: ${percentage}%"></span></div></div>`;
 };
 const intervalSet = (set) => `<article class="interval-set"${titleAttribute(`Detected interval set ${set.number}.`)}><div class="interval-set__heading"><div><h3${titleAttribute(`Protocol for detected interval set ${set.number}.`)}>Set ${set.number} · ${formatIntervalProtocol({ repetitions: set.repetitions, ...set.pattern })}</h3>${set.partial ? `<p class="quiet"${titleAttribute("Only the repetitions within the current selection are included.")}>${set.includedRepetitions} of ${set.repetitions} repetitions in selection</p>` : ""}</div></div><dl class="interval-set__metrics">
@@ -156,10 +158,10 @@ const intervalAnalysis = (intervalSets, sessionSummary, recoveries) => {
     ${intervalMetric("Total interval-set time", formatDuration(sessionSummary.totalSetDurationSeconds))}
     ${intervalMetric("Hard work", formatDuration(sessionSummary.totalHardWorkDurationSeconds))}
     ${intervalMetric("Avg work power", formatMetric(sessionSummary.averageWorkPowerWatts, "W"))}
-    ${intervalMetric("Time >=90% HRmax", formatDuration(sessionSummary.timeAtOrAbove90Seconds))}
-    ${intervalMetric("Time >=95% HRmax", formatDuration(sessionSummary.timeAtOrAbove95Seconds))}
+    ${intervalMetric("Time >=90% HRmax", formatDuration(sessionSummary.timeAtOrAbove90Seconds), "Valid recorded heart-rate time within detected interval sets at or above 90 percent of configured Max HR.")}
+    ${intervalMetric("Time >=95% HRmax", formatDuration(sessionSummary.timeAtOrAbove95Seconds), "Valid recorded heart-rate time within detected interval sets at or above 95 percent of configured Max HR.")}
     ${intervalMetric("Max HR", formatMetric(sessionSummary.maximumHeartRateBpm, "bpm"))}
-  </dl><div class="interval-exposure"><h3${titleAttribute("Share of interval-set time spent at high heart-rate intensities.")}>HR exposure within interval sets</h3>${exposureBar(">=90% HRmax", sessionSummary.timeAtOrAbove90Seconds, sessionSummary.totalSetDurationSeconds, "interval-exposure__fill--90")}${exposureBar(">=95% HRmax", sessionSummary.timeAtOrAbove95Seconds, sessionSummary.totalSetDurationSeconds, "interval-exposure__fill--95")}</div><div class="interval-sets">${intervalSets.map((set) => `${intervalSet(set)}${recoveriesByNextSet.has(set.number + 1) ? betweenSetRecovery(recoveriesByNextSet.get(set.number + 1)) : ""}`).join("")}</div></section>`;
+  </dl><div class="interval-exposure"><h3${titleAttribute("Share of interval-set time spent at high heart-rate intensities.")}>HR exposure within interval sets</h3>${exposureBar(90, sessionSummary.timeAtOrAbove90Seconds, sessionSummary.totalSetDurationSeconds, "interval-exposure__fill--90")}${exposureBar(95, sessionSummary.timeAtOrAbove95Seconds, sessionSummary.totalSetDurationSeconds, "interval-exposure__fill--95")}</div><div class="interval-sets">${intervalSets.map((set) => `${intervalSet(set)}${recoveriesByNextSet.has(set.number + 1) ? betweenSetRecovery(recoveriesByNextSet.get(set.number + 1)) : ""}`).join("")}</div></section>`;
 };
 
 const numericRange = (minimum, maximum, value, unit) => maximum == null ? `${value(minimum)} ${unit}+` : `${value(minimum)}-${value(maximum)} ${unit}`;

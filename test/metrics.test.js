@@ -61,6 +61,24 @@ describe("cycling calculations", () => {
     expect(calculated.heartRateZones.map((zone) => zone.durationSeconds)).toEqual([1, 1, 1, 1, 1]);
   });
 
+  it("counts 90 and 95 percent HRmax across the selected active range without interval detection", () => {
+    const dataRecords = records(10, { hr: (index) => [168, 169, 177, 178, 190, null, null, null, null, null, null][index] });
+    const calculated = result({ dataRecords, end: 10, maxHeartRate: 187 });
+    expect(calculated.heartRate.timeAtOrAbove90Seconds).toBe(4);
+    expect(calculated.heartRate.timeAtOrAbove95Seconds).toBe(2);
+
+    const events = [{ timestamp: at(3), eventType: "stop" }, { timestamp: at(5), eventType: "start" }];
+    const withoutPausedTime = result({ dataRecords, events, end: 10, maxHeartRate: 187 });
+    expect(withoutPausedTime.heartRate.timeAtOrAbove90Seconds).toBe(2);
+    expect(withoutPausedTime.heartRate.timeAtOrAbove95Seconds).toBe(0);
+  });
+
+  it("keeps HRmax exposure unavailable until maximum heart rate is configured", () => {
+    const calculated = result({ dataRecords: records(5), end: 5 });
+    expect(calculated.heartRate.timeAtOrAbove90Seconds).toBeNull();
+    expect(calculated.heartRate.timeAtOrAbove95Seconds).toBeNull();
+  });
+
   it("does not include heart rates above the configured maximum", () => {
     const dataRecords = records(2, { hr: (index) => [191, 191, 191][index] });
     const calculated = result({ dataRecords, end: 2, maxHeartRate: 190 });

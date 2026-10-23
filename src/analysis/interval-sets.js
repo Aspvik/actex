@@ -1,6 +1,7 @@
 import { activeTimerSeconds } from "../activity/build-timer-state.js";
 import { buildSampleIntervals, intervalsForField } from "../activity/sample-durations.js";
 import { maximumField, weightedField } from "../metrics/common.js";
+import { calculateHeartRateExposure } from "../metrics/heart-rate.js";
 import { secondsBetween } from "../utils/time.js";
 
 const SHORT_DURATION_TOLERANCE_SECONDS = 2;
@@ -44,23 +45,17 @@ const intervalSamplesFor = (intervals, field) => intervalsForField(intervals, fi
 const heartRateSummary = (intervals, startTimestamp, maxHeartRate) => {
   const heartRateIntervals = intervalSamplesFor(intervals, "heartRateBpm");
   const threshold90Bpm = maxHeartRate == null ? null : maxHeartRate * .9;
-  const threshold95Bpm = maxHeartRate == null ? null : maxHeartRate * .95;
   // FIT heart-rate samples are whole BPM. Round the mathematical threshold up,
   // never down, while retaining the precise threshold for export.
   const sampleThreshold = (threshold) => threshold == null ? null : Math.ceil(threshold);
   const threshold90SampleBpm = sampleThreshold(threshold90Bpm);
-  const threshold95SampleBpm = sampleThreshold(threshold95Bpm);
-  const timeAtOrAbove = (threshold) => threshold == null ? null : heartRateIntervals
-    .filter((interval) => interval.record.heartRateBpm >= threshold)
-    .reduce((total, interval) => total + interval.validSeconds, 0);
   const firstAtOrAbove90 = threshold90SampleBpm == null ? null : heartRateIntervals.find((interval) => interval.record.heartRateBpm >= threshold90SampleBpm);
   return {
     startBpm: first(heartRateIntervals)?.record.heartRateBpm ?? null,
     averageBpm: weightedField(intervals, "heartRateBpm"),
     maximumBpm: maximumField(intervals, "heartRateBpm"),
     endBpm: last(heartRateIntervals)?.record.heartRateBpm ?? null,
-    timeAtOrAbove90Seconds: timeAtOrAbove(threshold90SampleBpm),
-    timeAtOrAbove95Seconds: timeAtOrAbove(threshold95SampleBpm),
+    ...calculateHeartRateExposure(intervals, maxHeartRate),
     timeToFirst90Seconds: firstAtOrAbove90 ? secondsBetween(startTimestamp, firstAtOrAbove90.startTimestamp) : null
   };
 };

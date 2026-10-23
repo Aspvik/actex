@@ -16,7 +16,7 @@ export const calculateSelection = ({ activity, selection, timerSegments, ftp = n
   const intervals = buildSampleIntervals(activity.records, selection, timerSegments);
   const quality = dataQuality({ records: activity.records, selection, timerSegments, intervals, activeSeconds: activeDurationSeconds, decodeWarnings: activity.diagnostics.decodeWarnings });
   const power = calculatePower(intervals, activeDurationSeconds, ftp, session?.deviceNormalizedPowerWatts ?? null);
-  const heartRate = calculateHeartRate(intervals);
+  const heartRate = calculateHeartRate(intervals, maxHeartRate);
   const cadence = calculateCadence(intervals);
   const speed = calculateSpeedDistance(activity.records, intervals, selection, activeDurationSeconds);
   const elevation = calculateElevation(activity.records, selection, session?.totalAscentMeters ?? null, session?.totalDescentMeters ?? null);

@@ -31,6 +31,22 @@ const state = {
 };
 
 describe("lap presentation", () => {
+  it("shows selected-range HRmax time without a detected interval protocol", () => {
+    const markup = renderApp({
+      ...state,
+      maxHeartRate: 187,
+      result: { ...state.result, heartRate: { timeAtOrAbove90Seconds: 64, timeAtOrAbove95Seconds: 12 } }
+    });
+    expect(markup).toContain('<dt title="Total valid recorded heart-rate time during the selected active range at or above 90 percent of configured Max HR. Unavailable until Max HR is set.">Time >=90% HRmax</dt>');
+    expect(markup).toContain("0:01:04");
+    expect(markup).toContain("0:00:12");
+    expect(markup).not.toContain("Interval analysis");
+
+    const unavailable = renderApp(state);
+    expect(unavailable).toContain('>Time >=90% HRmax</dt><dd title="Total valid recorded heart-rate time during the selected active range at or above 90 percent of configured Max HR. Unavailable until Max HR is set.">Unavailable');
+    expect(unavailable).toContain('>Time >=95% HRmax</dt><dd title="Total valid recorded heart-rate time during the selected active range at or above 95 percent of configured Max HR. Unavailable until Max HR is set.">Unavailable');
+  });
+
   it("renders lap metrics and selection controls in a table", () => {
     const markup = renderApp(state);
 

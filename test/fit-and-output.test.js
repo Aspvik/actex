@@ -64,6 +64,23 @@ describe("versioned exports", () => {
     expect(markdown).toContain("Device: edge1040");
   });
 
+  it("includes selected-range HRmax time in text and JSON without interval sets", () => {
+    const exposureModel = {
+      ...model,
+      heartRate: { ...model.heartRate, configuredMaximumBpm: 187, timeAtOrAbove90Seconds: 64, timeAtOrAbove95Seconds: 12 }
+    };
+    const markdown = buildMarkdown(exposureModel);
+    expect(markdown).toContain("## Heart Rate");
+    expect(markdown).toContain("Time >= 90% HRmax: 0:01:04");
+    expect(markdown).toContain("Time >= 95% HRmax: 0:00:12");
+    expect(markdown).not.toContain("## Interval Session Summary");
+    expect(JSON.parse(buildJson(exposureModel)).heartRate).toMatchObject({ timeAtOrAbove90Seconds: 64, timeAtOrAbove95Seconds: 12 });
+
+    const withoutMax = buildMarkdown(model);
+    expect(withoutMax).toContain("Time >= 90% HRmax: Unavailable (set Max HR)");
+    expect(withoutMax).toContain("Time >= 95% HRmax: Unavailable (set Max HR)");
+  });
+
   it("formats power-zone boundaries without floating-point decimals", () => {
     const markdown = buildMarkdown({
       ...model,
