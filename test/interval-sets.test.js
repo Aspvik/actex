@@ -133,6 +133,71 @@ describe("interval set analysis", () => {
     expect(analyzeIntervalSets({ activity: nonIntervals, timerSegments: [{ startTimestamp: at(0), endTimestamp: at(120), timerRunning: true }], selection: selection(0, 120) }).intervalSets).toEqual([]);
   });
 
+  it("recognizes complete low-first over/under blocks despite individual pairs below the normal contrast threshold", () => {
+    const laps = [];
+    const lapPowers = [];
+    const addLap = (duration, power) => {
+      const start = laps.at(-1)?.end ?? 0;
+      laps.push({ start, end: start + duration });
+      lapPowers.push(power);
+    };
+    addLap(60, 180);
+    const blocks = [
+      [367, 430, 365, 427, 370, 430],
+      [364, 427, 368, 428, 370, 429],
+      [365, 422, 370, 424, 370, 432]
+    ];
+    blocks.forEach((powers, index) => {
+      powers.forEach((power) => addLap(120, power));
+      if (index < 2) addLap(index === 0 ? 240 : 330, 150);
+    });
+    const end = laps.at(-1).end;
+    const activity = buildActivity(laps, [], (second) => ({
+      powerWatts: lapPowers[laps.findIndex((lap) => second < lap.end)],
+      heartRateBpm: 170,
+      cadenceRpm: 90
+    }));
+    const timerSegments = [{ startTimestamp: at(0), endTimestamp: at(end), timerRunning: true }];
+    const analysis = analyzeIntervalSets({ activity, timerSegments, selection: selection(0, end), maxHeartRate: 190 });
+
+    expect(analysis.intervalSets).toHaveLength(3);
+    expect(analysis.intervalSets.map((set) => ({ kind: set.pattern.kind, repetitions: set.repetitions, duration: set.durationSeconds, hardWork: set.hardWorkDurationSeconds }))).toEqual([
+      { kind: "overUnder", repetitions: 3, duration: 720, hardWork: 360 },
+      { kind: "overUnder", repetitions: 3, duration: 720, hardWork: 360 },
+      { kind: "overUnder", repetitions: 3, duration: 720, hardWork: 360 }
+    ]);
+    expect(analysis.intervalSets[2].power.workAverageWatts).toBeCloseTo(426, 0);
+    expect(analysis.intervalSets[2].power.recoveryAverageWatts).toBeCloseTo(368, 0);
+    expect(analysis.betweenSetRecoveries.map((recovery) => recovery.elapsedDurationSeconds)).toEqual([240, 330]);
+    expect(analysis.intervalSessionSummary).toMatchObject({ setCount: 3, totalSetDurationSeconds: 2160, totalHardWorkDurationSeconds: 1080 });
+
+    const partial = analyzeIntervalSets({ activity, timerSegments, selection: selection(60, 180) });
+    expect(partial.intervalSets).toMatchObject([{ partial: true, includedRepetitions: 1, durationSeconds: 120, hardWorkDurationSeconds: 0 }]);
+
+    const markdown = buildMarkdown({
+      schemaVersion: 2,
+      activity: { sport: "cycling", startTimestamp: at(0).toISOString(), selectionType: "activity" },
+      selection: { startTimestamp: at(0).toISOString(), endTimestamp: at(end).toISOString() },
+      summary: { activeDurationSeconds: end, elapsedDurationSeconds: end },
+      power: {}, heartRate: {}, cadence: {}, elevation: {}, powerZones: [], heartRateZones: [],
+      intervalSets: analysis.intervalSets, intervalSessionSummary: analysis.intervalSessionSummary, betweenSetRecoveries: analysis.betweenSetRecoveries,
+      athleteNotes: null, dataQuality: { recordCount: end, powerCoverage: {}, heartRateCoverage: {}, cadenceCoverage: {} }, warnings: []
+    });
+    expect(markdown).toContain("Protocol: 3 x 12:00 over/under (3 x 02:00 under / 02:00 over)");
+    expect(markdown).toContain("Total Time Over: 0:18:00");
+    expect(markdown).toContain("### Set 3 - 12:00 over/under (3 x 02:00 under / 02:00 over)");
+    expect(markdown).toContain("Over Power:");
+    expect(markdown).toContain("Under Power:");
+  });
+
+  it("keeps a high-first work/recovery run distinct from over/under blocks", () => {
+    const laps = Array.from({ length: 8 }, (_, index) => ({ start: index * 120, end: (index + 1) * 120 }));
+    const activity = buildActivity(laps, [], (second) => ({ powerWatts: Math.floor(second / 120) % 2 ? 370 : 430, heartRateBpm: 160, cadenceRpm: 90 }));
+    const timerSegments = [{ startTimestamp: at(0), endTimestamp: at(960), timerRunning: true }];
+    const analysis = analyzeIntervalSets({ activity, timerSegments, selection: selection(0, 960) });
+    expect(analysis.intervalSets).toMatchObject([{ repetitions: 4, pattern: { kind: "workRecovery" } }]);
+  });
+
   it("selects one maximal non-overlapping long-interval set despite variable recoveries", () => {
     const intervals = [
       { start: 0, end: 300 }, { start: 300, end: 484 },

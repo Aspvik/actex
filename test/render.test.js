@@ -88,6 +88,35 @@ describe("lap presentation", () => {
 });
 
 describe("interval analysis presentation", () => {
+  it("shows grouped over/under sets with phase-specific labels and explanations", () => {
+    const pattern = { kind: "overUnder", setDurationSeconds: 719, workDurationSeconds: 119, recoveryDurationSeconds: 119, repetitions: 3 };
+    const intervalSets = [1, 2, 3].map((number) => ({
+      number, partial: false, repetitions: 3, includedRepetitions: 3, pattern,
+      durationSeconds: 719, hardWorkDurationSeconds: 357,
+      power: { workAverageWatts: 428, recoveryAverageWatts: 367, minimumRepAverageWatts: 422, maximumRepAverageWatts: 432, firstHalfAverageWatts: 429, secondHalfAverageWatts: 427, fadePercent: .005, wholeSetAverageWatts: 398 },
+      heartRate: { averageBpm: 166, maximumBpm: 177, startBpm: 155, endBpm: 176, timeAtOrAbove90Seconds: null, timeAtOrAbove95Seconds: null, timeToFirst90Seconds: null },
+      cadence: { workAverageRpm: 92, recoveryAverageRpm: 90 }
+    }));
+    const markup = renderApp({
+      ...state,
+      intervalSets,
+      intervalSessionSummary: {
+        setCount: 3, protocols: intervalSets.map((set) => ({ repetitions: set.repetitions, ...set.pattern })),
+        totalSetDurationSeconds: 2157, totalHardWorkDurationSeconds: 1071, averageWorkPowerWatts: 428,
+        timeAtOrAbove90Seconds: null, timeAtOrAbove95Seconds: null, maximumHeartRateBpm: 177
+      },
+      betweenSetRecoveries: []
+    });
+
+    expect(markup).toContain("3 x 12:00 over/under (3 x 02:00 under / 02:00 over)");
+    expect(markup).toContain("Set 1 · 12:00 over/under (3 x 02:00 under / 02:00 over)");
+    expect(markup).toContain('<dt title="Average recorded power during the higher-power phases identified from the lap pattern in this over/under set.">Over power</dt>');
+    expect(markup).toContain('<dt title="Average recorded power during the lower-power phases identified from the lap pattern in this over/under set.">Under power</dt>');
+    expect(markup).toContain('<dt title="Combined active duration of the higher-power phases of detected over/under sets in the selection.">Time over</dt>');
+    expect(markup).toContain('<dt title="Active duration of the higher-power phases of this detected over/under set within the selection.">Time over</dt>');
+    expect(markup).toContain('<dt title="Valid recorded heart-rate time within detected interval sets at or above 90 percent of configured Max HR.">Time >=90% HRmax</dt><dd title="Valid recorded heart-rate time within detected interval sets at or above 90 percent of configured Max HR.">Unavailable</dd>');
+  });
+
   it("renders interval summary, exposure, compact sets, recoveries, and details before zones", () => {
     const markup = renderApp({
       ...state,

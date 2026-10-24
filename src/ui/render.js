@@ -1,5 +1,5 @@
 import { formatDate, formatDuration, formatMetric, formatMetricDistance, formatNumber, formatPercent, formatSpeed } from "../utils/format.js";
-import { formatIntervalProtocol } from "../utils/interval-protocol.js";
+import { formatIntervalProtocol, formatIntervalSessionProtocols } from "../utils/interval-protocol.js";
 import { formatRelativeTime } from "../utils/time.js";
 
 const escape = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
@@ -31,19 +31,28 @@ const metricDescriptions = {
   "Elevation gain": "Total accumulated climbing during the selected activity range.",
   "Total interval-set time": "Combined elapsed duration of all detected interval sets in the selection.",
   "Hard work": "Combined duration of the work portions of detected interval sets.",
+  "Time over": "Combined active duration of the higher-power phases of detected over/under sets in the selection.",
   "Avg work power": "Average power across the work portions of all detected interval sets.",
+  "Avg over power": "Average recorded power across the higher-power phases of detected over/under sets in the selection.",
   "Max HR": "Highest recorded heart rate within the detected interval sets.",
   "Work power": "Average power during the work portions of this interval set.",
   "Recovery power": "Average power during the recovery portions of this interval set.",
+  "Over power": "Average recorded power during the higher-power phases identified from the lap pattern in this over/under set.",
+  "Under power": "Average recorded power during the lower-power phases identified from the lap pattern in this over/under set.",
   "Power fade": "Percentage change in average work power from the first half to the second half of this interval set.",
   "Avg / max HR": "Average and highest recorded heart rate within this interval set.",
   ">=90% HRmax": "Valid recorded heart-rate time within this interval set at or above 90 percent of configured Max HR.",
   "Work / recovery cadence": "Average pedalling cadence during work portions, followed by recovery portions.",
+  "Over / under cadence": "Average pedalling cadence during the higher-power phases, followed by the lower-power phases of this over/under set.",
   "Set duration": "Elapsed duration of this interval set, including its work and included recovery portions.",
   "Minimum rep power": "Lowest average power among the work repetitions in this interval set.",
   "Maximum rep power": "Highest average power among the work repetitions in this interval set.",
+  "Minimum over rep power": "Lowest average power among the higher-power phases in this over/under set.",
+  "Maximum over rep power": "Highest average power among the higher-power phases in this over/under set.",
   "First-half power": "Average work power in the first half of this interval set.",
   "Second-half power": "Average work power in the second half of this interval set.",
+  "Early over power": "Average power across the earlier higher-power phases included in this over/under set.",
+  "Late over power": "Average power across the later higher-power phases included in this over/under set.",
   "Whole-set power": "Average power across the entire interval set, including work and recovery portions.",
   "Start / end HR": "Heart rate at the start and end of this interval set.",
   ">=95% HRmax": "Valid recorded heart-rate time within this interval set at or above 95 percent of configured Max HR.",
@@ -118,7 +127,7 @@ const summary = (result, ftp) => `<section class="panel"${titleAttribute("Summar
 </dl></section>`;
 
 const intervalMetric = (label, value, description = metricDescription(label)) => {
-  return `<div${titleAttribute(description)}><dt${titleAttribute(description)}>${label}</dt><dd${titleAttribute(description)}>${value}</dd></div>`;
+  return `<div${titleAttribute(description)}><dt${titleAttribute(description)}>${label}</dt><dd${titleAttribute(description)}>${value ?? "Unavailable"}</dd></div>`;
 };
 const pairedMetric = (firstValue, secondValue, unit) => firstValue == null && secondValue == null
   ? "Unavailable"
@@ -131,33 +140,46 @@ const exposureBar = (thresholdPercent, seconds, totalSeconds, className) => {
   const description = `Valid recorded heart-rate time within detected interval sets at or above ${thresholdPercent} percent of configured Max HR. This is ${percentageLabel} of the combined interval-set time.`;
   return `<div class="interval-exposure__row"${titleAttribute(description)}><div><span${titleAttribute(description)}>${label}</span><strong${titleAttribute(description)}>${percentageLabel}</strong></div><div class="interval-exposure__track" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percentage}" aria-valuetext="${percentageLabel}"${titleAttribute(description)}><span class="interval-exposure__fill ${className}" style="width: ${percentage}%"></span></div></div>`;
 };
-const intervalSet = (set) => `<article class="interval-set"${titleAttribute(`Detected interval set ${set.number}.`)}><div class="interval-set__heading"><div><h3${titleAttribute(`Protocol for detected interval set ${set.number}.`)}>Set ${set.number} · ${formatIntervalProtocol({ repetitions: set.repetitions, ...set.pattern })}</h3>${set.partial ? `<p class="quiet"${titleAttribute("Only the repetitions within the current selection are included.")}>${set.includedRepetitions} of ${set.repetitions} repetitions in selection</p>` : ""}</div></div><dl class="interval-set__metrics">
-  ${intervalMetric("Work power", formatMetric(set.power.workAverageWatts, "W"))}
-  ${intervalMetric("Recovery power", formatMetric(set.power.recoveryAverageWatts, "W"))}
-  ${intervalMetric("Power fade", formatPercent(set.power.fadePercent))}
+const intervalSet = (set) => {
+  const overUnder = set.pattern.kind === "overUnder";
+  const protocolDescription = overUnder
+    ? `Detected over/under set ${set.number}. The lower-power phase comes first in each pair; the displayed set and phase durations are rounded to familiar interval lengths.`
+    : `Protocol for detected interval set ${set.number}.`;
+  return `<article class="interval-set"${titleAttribute(`Detected interval set ${set.number}.`)}><div class="interval-set__heading"><div><h3${titleAttribute(protocolDescription)}>Set ${set.number} · ${formatIntervalProtocol({ repetitions: set.repetitions, ...set.pattern })}</h3>${set.partial ? `<p class="quiet"${titleAttribute("Only the repetitions within the current selection are included.")}>${set.includedRepetitions} of ${set.repetitions} repetitions in selection</p>` : ""}</div></div><dl class="interval-set__metrics">
+  ${intervalMetric(overUnder ? "Over power" : "Work power", formatMetric(set.power.workAverageWatts, "W"))}
+  ${intervalMetric(overUnder ? "Under power" : "Recovery power", formatMetric(set.power.recoveryAverageWatts, "W"))}
+  ${intervalMetric("Power fade", formatPercent(set.power.fadePercent), overUnder ? "Percentage change in average higher-phase power from earlier to later repetitions included in this over/under set." : metricDescription("Power fade"))}
   ${intervalMetric("Avg / max HR", pairedMetric(set.heartRate.averageBpm, set.heartRate.maximumBpm, "bpm"))}
   ${intervalMetric(">=90% HRmax", formatDuration(set.heartRate.timeAtOrAbove90Seconds))}
-  ${intervalMetric("Work / recovery cadence", pairedMetric(set.cadence.workAverageRpm, set.cadence.recoveryAverageRpm, "rpm"))}
+  ${intervalMetric(overUnder ? "Over / under cadence" : "Work / recovery cadence", pairedMetric(set.cadence.workAverageRpm, set.cadence.recoveryAverageRpm, "rpm"))}
 </dl><details class="interval-set__details"${titleAttribute("Additional metrics for this interval set.")}><summary${titleAttribute("Show or hide additional metrics for this interval set.")}>Details</summary><dl class="interval-set__details-grid">
-  ${intervalMetric("Set duration", formatDuration(set.durationSeconds))}
-  ${intervalMetric("Hard work", formatDuration(set.hardWorkDurationSeconds))}
-  ${intervalMetric("Minimum rep power", formatMetric(set.power.minimumRepAverageWatts, "W"))}
-  ${intervalMetric("Maximum rep power", formatMetric(set.power.maximumRepAverageWatts, "W"))}
-  ${intervalMetric("First-half power", formatMetric(set.power.firstHalfAverageWatts, "W"))}
-  ${intervalMetric("Second-half power", formatMetric(set.power.secondHalfAverageWatts, "W"))}
-  ${intervalMetric("Whole-set power", formatMetric(set.power.wholeSetAverageWatts, "W"))}
+  ${intervalMetric("Set duration", formatDuration(set.durationSeconds), overUnder ? "Elapsed time from the first lower-power phase to the last higher-power phase of this over/under set, clipped to the selection." : metricDescription("Set duration"))}
+  ${intervalMetric(overUnder ? "Time over" : "Hard work", formatDuration(set.hardWorkDurationSeconds), overUnder ? "Active duration of the higher-power phases of this detected over/under set within the selection." : metricDescription("Hard work"))}
+  ${intervalMetric(overUnder ? "Minimum over rep power" : "Minimum rep power", formatMetric(set.power.minimumRepAverageWatts, "W"))}
+  ${intervalMetric(overUnder ? "Maximum over rep power" : "Maximum rep power", formatMetric(set.power.maximumRepAverageWatts, "W"))}
+  ${intervalMetric(overUnder ? "Early over power" : "First-half power", formatMetric(set.power.firstHalfAverageWatts, "W"))}
+  ${intervalMetric(overUnder ? "Late over power" : "Second-half power", formatMetric(set.power.secondHalfAverageWatts, "W"))}
+  ${intervalMetric("Whole-set power", formatMetric(set.power.wholeSetAverageWatts, "W"), overUnder ? "Average recorded power across both lower- and higher-power phases of this over/under set within the selection." : metricDescription("Whole-set power"))}
   ${intervalMetric("Start / end HR", pairedMetric(set.heartRate.startBpm, set.heartRate.endBpm, "bpm"))}
   ${intervalMetric(">=95% HRmax", formatDuration(set.heartRate.timeAtOrAbove95Seconds))}
   ${intervalMetric("Time to 90% HRmax", formatDuration(set.heartRate.timeToFirst90Seconds))}
 </dl></details></article>`;
+};
 const betweenSetRecovery = (recovery) => `<div class="between-set-recovery${recovery.partial ? " partial" : ""}"${titleAttribute("Recovery between consecutive detected interval sets.")}><span${titleAttribute("Duration of the recovery between interval sets.")}>${recovery.partial ? "Partial recovery" : "Recovery"} ${formatDuration(recovery.elapsedDurationSeconds)}</span><span${titleAttribute("Average active power during this recovery.")}>${formatMetric(recovery.averageActivePowerWatts, "W")}</span><span${titleAttribute("Lowest heart rate during recovery, followed by heart rate at the next set's start.")}>HR ${formatMetric(recovery.lowestHeartRateBpm, "bpm")} → ${formatMetric(recovery.heartRateAtNextSetStartBpm, "bpm")}</span></div>`;
 const intervalAnalysis = (intervalSets, sessionSummary, recoveries) => {
   if (!sessionSummary || !intervalSets.length) return "";
   const recoveriesByNextSet = new Map(recoveries.map((recovery) => [recovery.beforeSetNumber, recovery]));
-  return `<section class="panel interval-analysis"${titleAttribute("Analysis of detected repeated work and recovery intervals.")}><div class="section-heading"><div><h2${titleAttribute("Analysis of detected repeated work and recovery intervals.")}>Interval analysis</h2><p class="interval-analysis__protocol"${titleAttribute("Detected interval protocol or protocols.")}>${sessionSummary.protocols.map(formatIntervalProtocol).join(" + ")}</p></div><span class="selection-label"${titleAttribute("Number of detected interval sets.")}>${sessionSummary.setCount} ${sessionSummary.setCount === 1 ? "set" : "sets"}</span></div><dl class="interval-session-metrics">
+  const overUnderOnly = sessionSummary.protocols.every((protocol) => protocol.kind === "overUnder");
+  const protocolDescription = overUnderOnly
+    ? "Detected over/under protocol in the selection. Each set alternates lower and higher recorded power, beginning with the lower-power phase. Durations in the protocol are rounded to familiar interval lengths."
+    : "Detected interval protocol or protocols in the selection.";
+  const analysisDescription = overUnderOnly
+    ? "Analysis of detected sets with alternating lower- and higher-power phases."
+    : "Analysis of detected interval sets in the selection.";
+  return `<section class="panel interval-analysis"${titleAttribute(analysisDescription)}><div class="section-heading"><div><h2${titleAttribute(analysisDescription)}>Interval analysis</h2><p class="interval-analysis__protocol"${titleAttribute(protocolDescription)}>${formatIntervalSessionProtocols(sessionSummary.protocols)}</p></div><span class="selection-label"${titleAttribute("Number of detected interval sets.")}>${sessionSummary.setCount} ${sessionSummary.setCount === 1 ? "set" : "sets"}</span></div><dl class="interval-session-metrics">
     ${intervalMetric("Total interval-set time", formatDuration(sessionSummary.totalSetDurationSeconds))}
-    ${intervalMetric("Hard work", formatDuration(sessionSummary.totalHardWorkDurationSeconds))}
-    ${intervalMetric("Avg work power", formatMetric(sessionSummary.averageWorkPowerWatts, "W"))}
+    ${intervalMetric(overUnderOnly ? "Time over" : "Hard work", formatDuration(sessionSummary.totalHardWorkDurationSeconds))}
+    ${intervalMetric(overUnderOnly ? "Avg over power" : "Avg work power", formatMetric(sessionSummary.averageWorkPowerWatts, "W"))}
     ${intervalMetric("Time >=90% HRmax", formatDuration(sessionSummary.timeAtOrAbove90Seconds), "Valid recorded heart-rate time within detected interval sets at or above 90 percent of configured Max HR.")}
     ${intervalMetric("Time >=95% HRmax", formatDuration(sessionSummary.timeAtOrAbove95Seconds), "Valid recorded heart-rate time within detected interval sets at or above 95 percent of configured Max HR.")}
     ${intervalMetric("Max HR", formatMetric(sessionSummary.maximumHeartRateBpm, "bpm"))}

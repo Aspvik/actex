@@ -1,5 +1,5 @@
 import { formatDateTime, formatDuration, formatMetric, formatMetricDistance, formatPercent, formatSpeed } from "../utils/format.js";
-import { formatIntervalProtocol } from "../utils/interval-protocol.js";
+import { formatIntervalProtocol, formatIntervalSessionProtocols } from "../utils/interval-protocol.js";
 import { formatRelativeTime } from "../utils/time.js";
 
 const line = (label, value) => value == null ? null : `${label}: ${value}`;
@@ -10,42 +10,37 @@ const heartRateZoneBoundary = (ratio, maxHeartRate) => ratio == null ? "No limit
 const formatThreshold = (value) => value == null ? null : formatMetric(value, "bpm", Number.isInteger(value) ? 0 : 1);
 const metricLine = (label, value, unit, decimals = 0) => value == null ? null : line(label, formatMetric(value, unit, decimals));
 const percentLine = (label, value) => value == null ? null : line(label, formatPercent(value));
-const groupedIntervalProtocols = (protocols) => [...protocols.reduce((groups, protocol) => {
-  const label = formatIntervalProtocol(protocol);
-  const group = groups.get(label) ?? { label, count: 0 };
-  group.count += 1;
-  groups.set(label, group);
-  return groups;
-}, new Map()).values()]
-  .map((group) => group.count > 1 ? `${group.count} x [${group.label}]` : group.label)
-  .join(" + ");
-
-const intervalSessionSummary = (summary) => !summary ? null : section("Interval Session Summary", [
-  line("Sets", `${summary.setCount}${summary.partial ? " (partial selection)" : ""}`),
-  line("Protocol", groupedIntervalProtocols(summary.protocols)),
-  line("Total Interval Set Duration", formatDuration(summary.totalSetDurationSeconds)),
-  line("Total Hard Work", formatDuration(summary.totalHardWorkDurationSeconds)),
-  metricLine("Average Work Power", summary.averageWorkPowerWatts, "W"),
-  line("Time >= 90% HRmax", formatDuration(summary.timeAtOrAbove90Seconds)),
-  line("Time >= 95% HRmax", formatDuration(summary.timeAtOrAbove95Seconds)),
-  metricLine("Maximum HR", summary.maximumHeartRateBpm, "bpm")
-]);
+const intervalSessionSummary = (summary) => {
+  if (!summary) return null;
+  const overUnderOnly = summary.protocols.every((protocol) => protocol.kind === "overUnder");
+  return section("Interval Session Summary", [
+    line("Sets", `${summary.setCount}${summary.partial ? " (partial selection)" : ""}`),
+    line("Protocol", formatIntervalSessionProtocols(summary.protocols)),
+    line("Total Interval Set Duration", formatDuration(summary.totalSetDurationSeconds)),
+    line(overUnderOnly ? "Total Time Over" : "Total Hard Work", formatDuration(summary.totalHardWorkDurationSeconds)),
+    metricLine(overUnderOnly ? "Average Over Power" : "Average Work Power", summary.averageWorkPowerWatts, "W"),
+    line("Time >= 90% HRmax", formatDuration(summary.timeAtOrAbove90Seconds)),
+    line("Time >= 95% HRmax", formatDuration(summary.timeAtOrAbove95Seconds)),
+    metricLine("Maximum HR", summary.maximumHeartRateBpm, "bpm")
+  ]);
+};
 
 const intervalSet = (set) => {
+  const overUnder = set.pattern.kind === "overUnder";
   const title = `${set.partial ? "Partial Set" : "Set"} ${set.number} - ${formatIntervalProtocol({ repetitions: set.repetitions, ...set.pattern })}`;
   const repetitions = set.partial ? `${set.includedRepetitions} of ${set.repetitions}` : String(set.repetitions);
   return [`### ${title}`,
     line("Repetitions", repetitions),
     line("Set Duration", formatDuration(set.durationSeconds)),
-    line("Hard Work Duration", formatDuration(set.hardWorkDurationSeconds)),
-    "Work Power:",
+    line(overUnder ? "Time Over" : "Hard Work Duration", formatDuration(set.hardWorkDurationSeconds)),
+    overUnder ? "Over Power:" : "Work Power:",
     metricLine("Average", set.power.workAverageWatts, "W"),
     metricLine("Minimum Rep Average", set.power.minimumRepAverageWatts, "W"),
     metricLine("Maximum Rep Average", set.power.maximumRepAverageWatts, "W"),
-    metricLine("First Half Average", set.power.firstHalfAverageWatts, "W"),
-    metricLine("Second Half Average", set.power.secondHalfAverageWatts, "W"),
+    metricLine(overUnder ? "Early Average" : "First Half Average", set.power.firstHalfAverageWatts, "W"),
+    metricLine(overUnder ? "Late Average" : "Second Half Average", set.power.secondHalfAverageWatts, "W"),
     percentLine("Power Fade", set.power.fadePercent),
-    "Recovery Power:",
+    overUnder ? "Under Power:" : "Recovery Power:",
     metricLine("Average", set.power.recoveryAverageWatts, "W"),
     "Whole Set:",
     metricLine("Average Power", set.power.wholeSetAverageWatts, "W"),
@@ -58,8 +53,8 @@ const intervalSet = (set) => {
     line("Time >= 95% HRmax", formatDuration(set.heartRate.timeAtOrAbove95Seconds)),
     line("Time to first reach 90% HRmax", formatDuration(set.heartRate.timeToFirst90Seconds)),
     "Cadence:",
-    metricLine("Work Average", set.cadence.workAverageRpm, "rpm"),
-    metricLine("Recovery Average", set.cadence.recoveryAverageRpm, "rpm")
+    metricLine(overUnder ? "Over Average" : "Work Average", set.cadence.workAverageRpm, "rpm"),
+    metricLine(overUnder ? "Under Average" : "Recovery Average", set.cadence.recoveryAverageRpm, "rpm")
   ].filter(Boolean).join("\n");
 };
 

@@ -10,6 +10,11 @@ const MINIMUM_POWER_DIFFERENCE_WATTS = 25;
 const MINIMUM_POWER_DIFFERENCE_RATIO = .15;
 const MINIMUM_BETWEEN_SET_RECOVERY_SECONDS = 60;
 const LONG_WORK_INTERVAL_SECONDS = 120;
+const MINIMUM_OVER_UNDER_PHASE_SECONDS = 60;
+const MINIMUM_OVER_UNDER_POWER_RATIO = 1.1;
+const MINIMUM_UNDER_TO_OVER_POWER_RATIO = .75;
+const MAXIMUM_PHASE_POWER_VARIATION_RATIO = .1;
+const MAXIMUM_PHASE_GAP_SECONDS = 5;
 
 const selectionFor = (startTimestamp, endTimestamp) => ({ type: "range", startTimestamp, endTimestamp });
 const durationTolerance = (seconds) => seconds <= 60 ? SHORT_DURATION_TOLERANCE_SECONDS : seconds * LONG_DURATION_TOLERANCE_RATIO;
@@ -64,6 +69,17 @@ const isWorkRecoveryPair = (work, recovery) => work.averagePowerWatts != null
   && recovery.averagePowerWatts != null
   && work.averagePowerWatts - recovery.averagePowerWatts >= MINIMUM_POWER_DIFFERENCE_WATTS
   && work.averagePowerWatts >= recovery.averagePowerWatts * (1 + MINIMUM_POWER_DIFFERENCE_RATIO);
+
+const isOverUnderPair = (under, over) => under?.averagePowerWatts != null
+  && over?.averagePowerWatts != null
+  && over.averagePowerWatts - under.averagePowerWatts >= MINIMUM_POWER_DIFFERENCE_WATTS
+  && over.averagePowerWatts >= under.averagePowerWatts * MINIMUM_OVER_UNDER_POWER_RATIO
+  && under.averagePowerWatts >= over.averagePowerWatts * MINIMUM_UNDER_TO_OVER_POWER_RATIO;
+const phasePowerMatches = (first, next) => Math.abs(first.averagePowerWatts - next.averagePowerWatts) <= first.averagePowerWatts * MAXIMUM_PHASE_POWER_VARIATION_RATIO;
+const phasesAreAdjacent = (first, next) => {
+  const gap = secondsBetween(first.endTimestamp, next.startTimestamp);
+  return gap >= 0 && gap <= MAXIMUM_PHASE_GAP_SECONDS;
+};
 
 const buildLapUnits = ({ activity, timerSegments }) => {
   const workoutStepsByIndex = new Map((activity.workoutSteps ?? []).map((step) => [step.index, step]));
@@ -159,14 +175,69 @@ const detectSetAt = (units, workRepetitions, startIndex) => {
   };
 };
 
+const detectOverUnderAt = (units, startIndex) => {
+  const firstUnder = units[startIndex];
+  const firstOver = units[startIndex + 1];
+  if (!firstUnder || !firstOver
+    || firstUnder.patternDurationSeconds < MINIMUM_OVER_UNDER_PHASE_SECONDS
+    || !durationMatches(firstUnder.patternDurationSeconds, firstOver.patternDurationSeconds)
+    || !phasesAreAdjacent(firstUnder, firstOver)
+    || !isOverUnderPair(firstUnder, firstOver)) return null;
+
+  // A conventional work/recovery run can contain the same low/high pairs
+  // after its first work lap. Only start a block at its first low phase.
+  const previous = units[startIndex - 1];
+  if (previous && phasesAreAdjacent(previous, firstUnder)
+    && durationMatches(previous.patternDurationSeconds, firstOver.patternDurationSeconds)
+    && isOverUnderPair(firstUnder, previous)) return null;
+
+  const unders = [];
+  const overs = [];
+  for (let cursor = startIndex; cursor + 1 < units.length; cursor += 2) {
+    const under = units[cursor];
+    const over = units[cursor + 1];
+    if (!durationMatches(firstUnder.patternDurationSeconds, under.patternDurationSeconds)
+      || !durationMatches(firstOver.patternDurationSeconds, over.patternDurationSeconds)
+      || !phasesAreAdjacent(under, over)
+      || (overs.length && !phasesAreAdjacent(overs.at(-1), under))
+      || !isOverUnderPair(under, over)
+      || !phasePowerMatches(firstUnder, under)
+      || !phasePowerMatches(firstOver, over)) break;
+    unders.push(under);
+    overs.push(over);
+  }
+  if (overs.length < 3) return null;
+
+  return {
+    kind: "overUnder",
+    startIndex,
+    endIndex: units.indexOf(overs.at(-1)),
+    startTimestamp: firstUnder.startTimestamp,
+    endTimestamp: overs.at(-1).endTimestamp,
+    setDurationSeconds: secondsBetween(firstUnder.startTimestamp, overs.at(-1).endTimestamp),
+    workDurationSeconds: average(overs.map((over) => over.durationSeconds)),
+    recoveryDurationSeconds: average(unders.map((under) => under.durationSeconds)),
+    recoveryDurationConsistent: true,
+    workUnits: overs,
+    recoveryUnits: unders,
+    workoutStepIndexes: unders.concat(overs)
+      .map((unit) => unit.workoutStepIndex)
+      .filter((index) => index != null)
+  };
+};
+
 const detectSets = (units) => {
   const workRepetitions = buildWorkRepetitions(units);
   const candidates = workRepetitions
     .map(({ unitIndex }) => detectSetAt(units, workRepetitions, unitIndex))
+    .concat(units.map((_, unitIndex) => detectOverUnderAt(units, unitIndex)))
     .filter(Boolean)
-    // Claim the largest runs first, so a 4 x 5:00 candidate wins over its
-    // overlapping 2 x and 3 x subsets.
-    .toSorted((left, right) => right.workUnits.length - left.workUnits.length || left.startIndex - right.startIndex);
+    // A complete alternating block is more specific than a work/recovery run
+    // that extends through the between-set recovery and absorbs another lap.
+    // Within each kind, claim the largest run before its overlapping subsets.
+    .toSorted((left, right) => Number(right.kind === "overUnder") - Number(left.kind === "overUnder")
+      || right.workUnits.length - left.workUnits.length
+      || left.startIndex - right.startIndex);
   const selected = [];
   for (const candidate of candidates) {
     if (selected.some((set) => overlaps(candidate, set))) continue;
@@ -193,9 +264,9 @@ const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxH
   if (!overlaps(setWindow, selection)) return null;
   const clippedSet = clip(setWindow, selection);
   const workWindows = set.workUnits.map((unit) => clip(unit, selection)).filter(Boolean);
-  if (!workWindows.length) return null;
-  const uniqueWorkWindows = uniqueWindows(workWindows);
   const recoveryWindows = uniqueWindows(set.recoveryUnits.map((unit) => clip(unit, selection)).filter(Boolean));
+  if (!workWindows.length && !(set.kind === "overUnder" && recoveryWindows.length)) return null;
+  const uniqueWorkWindows = uniqueWindows(workWindows);
   const workIntervalsByRep = workWindows.map((window) => activeIntervalsFor(activity, timerSegments, window));
   const recoveryIntervals = recoveryWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
   const workIntervals = uniqueWorkWindows.flatMap((window) => activeIntervalsFor(activity, timerSegments, window));
@@ -214,10 +285,14 @@ const summarizeSet = ({ set, setNumber, activity, timerSegments, selection, maxH
     number: setNumber,
     partial,
     repetitions: set.workUnits.length,
-    includedRepetitions: workWindows.length,
+    includedRepetitions: set.kind === "overUnder"
+      ? set.workUnits.filter((work, index) => overlaps(work, selection) || overlaps(set.recoveryUnits[index], selection)).length
+      : workWindows.length,
     workoutStepIndexes: set.workoutStepIndexes,
     executionMetadataSource: set.workoutStepIndexes.length ? "workoutStepIndex" : set.workUnits[0].executionMetadataSource,
     pattern: {
+      kind: set.kind ?? "workRecovery",
+      ...(set.kind === "overUnder" ? { setDurationSeconds: set.setDurationSeconds } : {}),
       workDurationSeconds: set.workDurationSeconds,
       recoveryDurationSeconds: set.recoveryDurationSeconds,
       recoveryDurationConsistent: set.recoveryDurationConsistent

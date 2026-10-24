@@ -15,4 +15,20 @@ export const formatIntervalDuration = (seconds) => {
   return displaySeconds >= 60 ? formatDuration(displaySeconds).replace(/^0:/, "") : String(displaySeconds);
 };
 
-export const formatIntervalProtocol = ({ repetitions, workDurationSeconds, recoveryDurationSeconds, recoveryDurationConsistent }) => `${repetitions} x ${formatIntervalDuration(workDurationSeconds)}${recoveryDurationConsistent === false ? "" : `/${formatIntervalDuration(recoveryDurationSeconds)}`}`;
+export const formatIntervalProtocol = ({ kind, repetitions, setDurationSeconds, workDurationSeconds, recoveryDurationSeconds, recoveryDurationConsistent }) => {
+  if (kind === "overUnder") {
+    const duration = setDurationSeconds ?? repetitions * (workDurationSeconds + recoveryDurationSeconds);
+    return `${formatIntervalDuration(duration)} over/under (${repetitions} x ${formatIntervalDuration(recoveryDurationSeconds)} under / ${formatIntervalDuration(workDurationSeconds)} over)`;
+  }
+  return `${repetitions} x ${formatIntervalDuration(workDurationSeconds)}${recoveryDurationConsistent === false ? "" : `/${formatIntervalDuration(recoveryDurationSeconds)}`}`;
+};
+
+export const formatIntervalSessionProtocols = (protocols) => [...protocols.reduce((groups, protocol) => {
+  const label = formatIntervalProtocol(protocol);
+  const group = groups.get(label) ?? { label, kind: protocol.kind, count: 0 };
+  group.count += 1;
+  groups.set(label, group);
+  return groups;
+}, new Map()).values()]
+  .map(({ label, kind, count }) => count === 1 ? label : kind === "overUnder" ? `${count} x ${label}` : `${count} x [${label}]`)
+  .join(" + ");
